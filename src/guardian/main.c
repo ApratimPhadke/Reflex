@@ -1,0 +1,348 @@
+/* reflex-guardian - the hard-real-time safety reflex.
+ *
+ * One thread, one blocking call. Every control period it:
+ *   1. reads the sensor            4. sends the command to the actuator
+ *   2. judges the pilot's proposal 5. replies to the pilot with the new state
+ *   3. picks pilot or safe command 6. supervises the pilot process
+ *
+ * Rules this file keeps inside the control loop:
+ *   - never wait for the pilot        - never allocate
+ *   - never take a lock               - never print (events go to a wait-free log in
+ *                                       shared memory; a console can block for milliseconds)
+ *
+ * SPDX-License-Identifier: MIT */
+#include <errno.h>
+#include <libgen.h>
+#include <math.h>
+#include <pthread.h>
+#include <sched.h>
+#include <signal.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include "rx_core.h"
+#include "rx_shm.h"
+#include "rx_ipc.h"
+#include "rx_io.h"
+
+#if defined(__QNXNTO__) && !defined(RX_NO_TRACE)
+#include <sys/trace.h>
+#define RX_TRACE(...) trace_logf(_NTO_TRACE_USERFIRST + 42, __VA_ARGS__)   /* visible in the System Profiler */
+#else
+#define RX_TRACE(...) ((void)0)
+#endif
+
+extern char **environ;
+
+static volatile sig_atomic_t g_stop;
+static void on_stop(int s) { (void)s; g_stop = 1; }
+
+typedef struct {
+    float hz; int prio, pilot_prio; int sporadic, no_pilot, fresh, verbose, learn;
+    const char *backend, *dev, *weights; char pilot_path[512];
+} opts_t;
+
+static void usage(void)
+{
+    puts("reflex-guardian [options]\n"
+         "  --hz N             control rate (default 1000 for sim, 50 for serial)\n"
+         "  --backend sim|serial\n"
+         "  --dev PATH         serial device of the I/O node (e.g. /dev/serusb1)\n"
+         "  --prio N           guardian priority (default 50)\n"
+         "  --pilot-prio N     pilot priority (default 10)\n"
+         "  --sporadic         QNX: run the pilot under SCHED_SPORADIC with a CPU budget\n"
+         "  --learn            pilot learns online, starting from an untrained network\n"
+         "  --learn-from-sim   pilot learns online, starting from the simulator-trained weights\n"
+         "  --weights PATH     where the learning pilot keeps its weights (default ./reflex-policy.bin)\n"
+         "  --pilot PATH       pilot executable (default: reflex-pilot next to this binary)\n"
+         "  --no-pilot         do not spawn a pilot (fallback controller only)\n"
+         "  --fresh            reset the simulated world and all counters\n"
+         "  --verbose          print a status line once per second (debugging only: printing\n"
+         "                     from a real-time loop adds latency)");
+}
+
+static pid_t spawn_pilot(const opts_t *o, int chid, float hz)
+{
+    posix_spawnattr_t at;
+    posix_spawnattr_init(&at);
+    struct sched_param sp; memset(&sp, 0, sizeof sp);
+#ifdef __QNXNTO__
+    sp.sched_priority = o->pilot_prio;                       /* never let the child inherit our priority */
+    posix_spawnattr_setschedpolicy(&at, SCHED_RR);
+#else
+    sp.sched_priority = 0;
+    posix_spawnattr_setschedpolicy(&at, SCHED_OTHER);
+#endif
+    posix_spawnattr_setschedparam(&at, &sp);
+    posix_spawnattr_setflags(&at, POSIX_SPAWN_SETSCHEDULER | POSIX_SPAWN_SETSCHEDPARAM);
+
+    /* The pilot is told where to send its proposals and nothing else. It does not get to map
+     * the guardian's shared memory. */
+    char a_pid[16], a_chid[16], a_hz[16];
+    snprintf(a_pid, sizeof a_pid, "%d", (int)getpid());
+    snprintf(a_chid, sizeof a_chid, "%d", chid);
+    snprintf(a_hz, sizeof a_hz, "%.3f", hz);
+    char *argv[10]; int n = 0;
+    argv[n++] = (char *)o->pilot_path; argv[n++] = a_pid; argv[n++] = a_chid; argv[n++] = a_hz;
+    if (o->learn == 1) argv[n++] = "--learn";
+    if (o->learn == 2) argv[n++] = "--learn-from-sim";
+    if (o->learn) { argv[n++] = "--weights"; argv[n++] = (char *)o->weights; }
+    argv[n] = NULL;
+
+    pid_t pid = 0;
+    int rc = posix_spawn(&pid, o->pilot_path, NULL, &at, argv, environ);
+    posix_spawnattr_destroy(&at);
+    if (rc != 0) return 0;
+#ifdef __QNXNTO__
+    if (o->sporadic) {
+        /* The pilot gets prompt service at its normal priority, but only for 3 ms in every 10 ms.
+         * Once the budget is gone it drops to priority 1 until the budget is replenished, so even
+         * a spinning pilot cannot starve the rest of the system. */
+        struct sched_param ss; memset(&ss, 0, sizeof ss);
+        ss.sched_priority = o->pilot_prio;
+        ss.sched_ss_low_priority = 1;
+        ss.sched_ss_max_repl = 8;
+        ss.sched_ss_repl_period.tv_nsec = 10 * 1000000;
+        ss.sched_ss_init_budget.tv_nsec = 3 * 1000000;
+        sched_setscheduler(pid, SCHED_SPORADIC, &ss);
+    }
+#endif
+    return pid;
+}
+
+int main(int argc, char **argv)
+{
+    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "" };
+    {   /* default pilot path: next to our own binary */
+        char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]);
+        snprintf(o.pilot_path, sizeof o.pilot_path, "%s/reflex-pilot", dirname(tmp));
+    }
+    for (int i = 1; i < argc; i++) {
+        const char *a = argv[i], *n = i + 1 < argc ? argv[i + 1] : NULL;
+        if (!strcmp(a, "--hz") && n) { o.hz = (float)atof(n); i++; }
+        else if (!strcmp(a, "--backend") && n) { o.backend = n; i++; }
+        else if (!strcmp(a, "--dev") && n) { o.dev = n; i++; }
+        else if (!strcmp(a, "--prio") && n) { o.prio = atoi(n); i++; }
+        else if (!strcmp(a, "--pilot-prio") && n) { o.pilot_prio = atoi(n); i++; }
+        else if (!strcmp(a, "--pilot") && n) { snprintf(o.pilot_path, sizeof o.pilot_path, "%s", n); i++; }
+        else if (!strcmp(a, "--weights") && n) { o.weights = n; i++; }
+        else if (!strcmp(a, "--sporadic")) o.sporadic = 1;
+        else if (!strcmp(a, "--learn")) o.learn = 1;
+        else if (!strcmp(a, "--learn-from-sim")) o.learn = 2;
+        else if (!strcmp(a, "--no-pilot")) o.no_pilot = 1;
+        else if (!strcmp(a, "--fresh")) o.fresh = 1;
+        else if (!strcmp(a, "--verbose")) o.verbose = 1;
+        else if (!strcmp(a, "--quiet")) { /* default now, accepted for compatibility */ }
+        else { usage(); return strcmp(a, "--help") ? 2 : 0; }
+    }
+    int serial = !strcmp(o.backend, "serial");
+    if (o.hz <= 0) o.hz = serial ? 50.0f : 1000.0f;
+    if (o.hz < 10 || o.hz > 4000) { fprintf(stderr, "--hz must be 10..4000\n"); return 2; }
+
+    rx_cfg_t cfg; rx_cfg_default(&cfg, o.hz);
+    if (serial) rx_cfg_hardware(&cfg);
+
+    rx_shm_t *shm = rx_shm_open(1);
+    if (!shm) { perror("shm_open " RX_SHM_NAME); return 1; }
+    if (o.fresh) rx_shm_defaults(shm);
+    {   /* a previous guardian may have died and left its pilot behind */
+        pid_t old = atomic_load(&shm->pilot_pid);
+        if (old > 0) kill(old, SIGKILL);
+        atomic_store(&shm->pilot_pid, 0);
+    }
+    shm->hz = cfg.hz; shm->half_len = cfg.half_len; shm->theta_max = cfg.theta_max;
+    snprintf(shm->backend, sizeof shm->backend, "%s", o.backend);
+    atomic_store(&shm->guardian_pid, getpid());
+    atomic_fetch_add(&shm->guardian_starts, 1);
+    atomic_store(&shm->pilot_present, 0);
+    if (o.learn) atomic_store(&shm->training, 1);
+
+    rx_io_t *io = serial ? rx_io_serial_open(&cfg, o.dev) : rx_io_sim_open(&cfg, shm, o.fresh);
+    if (!io) return 1;
+
+    /* real-time hygiene: no page faults, fixed priority */
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) perror("[guardian] mlockall (continuing)");
+    struct sched_param sp = { .sched_priority = o.prio };
+    int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
+    if (rc) fprintf(stderr, "[guardian] WARNING: could not get SCHED_FIFO %d (%s) - timing numbers will not be meaningful\n",
+                    o.prio, strerror(rc));
+
+    signal(SIGINT, on_stop); signal(SIGTERM, on_stop); signal(SIGPIPE, SIG_IGN);
+
+    uint64_t period = (uint64_t)(1e9 / cfg.hz);
+    rx_server_t *srv = rx_server_create(period, o.prio, shm);
+    if (!srv) return 1;
+
+    fprintf(stderr, "[guardian] pid %d  %s  %.0f Hz  plant=%s  prio=%d  pilot=%s%s\n", getpid(), rx_ipc_backend(),
+            cfg.hz, io->name, o.prio, o.no_pilot ? "(none)" : o.pilot_path,
+            o.learn == 1 ? "  LEARNING from scratch" : o.learn == 2 ? "  LEARNING from sim weights" : "");
+    fprintf(stderr, "[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.\n");
+
+    rx_est_t est = { 0 };
+    rx_guard_t g; rx_guard_init(&g);
+    rx_proposal_t prop, last_prop;
+    memset(&prop, 0, sizeof prop); memset(&last_prop, 0, sizeof last_prop);
+    int have_prop = 0, sensor_ok = 1;
+    pid_t pilot = 0;
+    uint32_t seq = 0, last_prop_tick = 0, pilot_started_tick = 0, respawn_at = 0;
+    uint32_t offences = 0, offence_age = 0, spawned = 0, ep_seen = 0, ep_iv = 0;
+    uint32_t kill_ticks = (uint32_t)(0.4f * cfg.hz), backoff = (uint32_t)(0.2f * cfg.hz);
+    uint32_t sup_div = (uint32_t)(cfg.hz / 100.0f); if (sup_div < 1) sup_div = 1;   /* supervise at ~100 Hz */
+    uint64_t t_ideal = rx_server_start_ns(srv) + period, last_print = 0;            /* expiry k is due at start + k*period */
+    uint64_t sp_phase_ns = 0; int sp_sign = 1;
+    uint8_t prev_mode = 255;
+    rx_event_push(shm, 0, RX_E_GUARDIAN_START, (int32_t)atomic_load(&shm->guardian_starts));
+
+    while (!g_stop) {
+        rx_event_e ev = rx_server_wait(srv, &prop);
+        if (ev == RX_EV_ERROR) { perror("[guardian] wait"); break; }
+        if (ev == RX_EV_PROPOSAL) {
+            atomic_store(&shm->pilot_present, 1);
+            if (prop.flags & RX_PF_HELLO) have_prop = 0;
+            else { last_prop = prop; have_prop = 1; last_prop_tick = seq; }
+            continue;
+        }
+        if (ev == RX_EV_GONE) { atomic_store(&shm->pilot_present, 0); have_prop = 0; continue; }
+        if (ev != RX_EV_TICK) continue;
+
+        /* ------------------------------------------------ control tick */
+        uint64_t t0 = rx_now_ns();
+        uint32_t lat = t0 > t_ideal ? (uint32_t)(t0 - t_ideal > 4000000000ull ? 4000000000ull : t0 - t_ideal) : 0;
+        t_ideal += period;
+        if (lat > 8 * period) t_ideal = t0 + period;                 /* we were stopped/suspended: resync */
+        seq++;
+
+        float x_true; int lost;
+        float z = io->read(io, &x_true, &lost);
+        if (isfinite(z)) rx_est_update(&est, &cfg, z);
+        int ok_now = isfinite(z) && !lost;
+        if (sensor_ok && !ok_now) rx_event_push(shm, seq, serial ? RX_E_SENSOR_LOST : RX_E_BALL_LOST, 0);
+        sensor_ok = ok_now;
+
+        /* setpoint: automatic square wave, or whatever the operator asked for */
+        uint64_t half = (uint64_t)atomic_load(&shm->sp_period_ms) * 1000000ull;
+        if (t0 - sp_phase_ns >= half) { sp_phase_ns = t0; sp_sign = -sp_sign; }
+        float sp_m = atomic_load(&shm->sp_auto) ? 0.08f * sp_sign : atomic_load(&shm->sp_manual_mm) * 1e-3f;
+
+        int present = atomic_load(&shm->pilot_present);
+        int training = atomic_load(&shm->training);
+        rx_guard_in_t in = { (int)atomic_load(&shm->guard_enabled), present, have_prop,
+                             seq - last_prop.seq, have_prop ? last_prop.u : NAN };
+        g.quarantined = (uint8_t)atomic_load(&shm->quarantined);
+        rx_guard_out_t out;
+        rx_guard_step(&g, &cfg, est.x, est.v, sp_m, &in, &out);
+        if (!ok_now) out.u_out = 0.0f;                               /* no ball in sight: level the beam */
+
+        io->write(io, out.u_out);
+
+        rx_state_t st = { seq, atomic_load(&shm->fault), atomic_load(&shm->fault_arg), est.x, est.v, sp_m,
+                          g.mode, g.reason, (uint32_t)training };
+        rx_server_publish(srv, &st);                                 /* unblocks the pilot; never blocks us */
+
+        /* ------------------------------------------------ pilot supervision */
+        int want_restart = out.want_restart && !training;            /* a learner is allowed to be wrong */
+        if (pilot > 0 && (seq % sup_div == 0 || want_restart)) {
+            int ws;
+            if (waitpid(pilot, &ws, WNOHANG) == pilot) {             /* it died (crash, or we killed it) */
+                rx_event_push(shm, seq, RX_E_PILOT_DIED, pilot);
+                pilot = 0; have_prop = 0;
+                atomic_store(&shm->pilot_pid, 0); atomic_store(&shm->pilot_present, 0);
+                rx_server_drop(srv);
+                respawn_at = seq + backoff;
+            } else {
+                int hung = seq - pilot_started_tick > (uint32_t)cfg.hz && seq - last_prop_tick > kill_ticks;
+                if (hung || want_restart) {
+                    kill(pilot, SIGKILL);
+                    rx_event_push(shm, seq, hung ? RX_E_KILL_HUNG : RX_E_KILL_STRIKES, pilot);
+                    atomic_fetch_add(&shm->pilot_kills, 1);
+                    offences++; offence_age = (uint32_t)(30 * cfg.hz);
+                    last_prop_tick = seq;                            /* do not re-kill while it is being reaped */
+                    if (offences >= 3) {
+                        atomic_store(&shm->quarantined, 1);
+                        rx_event_push(shm, seq, RX_E_QUARANTINE, 0);
+                        offences = 0;
+                    }
+                }
+            }
+        }
+        if (offence_age > 0 && --offence_age == 0) offences = 0;
+        if (atomic_exchange(&shm->cmd_release_quarantine, 0)) {
+            if (atomic_exchange(&shm->quarantined, 0)) rx_event_push(shm, seq, RX_E_RELEASE, 0);
+            offences = 0;
+        }
+        if (pilot == 0 && !o.no_pilot && !atomic_load(&shm->quarantined) && seq >= respawn_at) {
+            pilot = spawn_pilot(&o, rx_server_chid(srv), cfg.hz);
+            if (pilot > 0) {
+                rx_server_allow(srv, pilot);
+                atomic_store(&shm->pilot_pid, pilot);
+                pilot_started_tick = last_prop_tick = seq;
+                if (spawned++) atomic_fetch_add(&shm->pilot_restarts, 1);
+                rx_event_push(shm, seq, RX_E_PILOT_SPAWN, pilot);
+            } else respawn_at = seq + (uint32_t)cfg.hz;
+        }
+
+        /* ------------------------------------------------ bookkeeping */
+        if (out.intervened) {
+            atomic_fetch_add(&shm->interventions[g.reason], 1);
+            rx_event_push(shm, seq, RX_E_INTERVENE, g.reason);
+            ep_iv++;
+        }
+        if (g.mode != prev_mode) {
+            if (g.mode == RX_MODE_AI && prev_mode == RX_MODE_SAFE) rx_event_push(shm, seq, RX_E_AI_RESUMED, 0);
+            RX_TRACE("reflex %s/%s x=%dmm", rx_mode_name[g.mode], rx_reason_name[g.reason], (int)(est.x * 1000));
+            prev_mode = g.mode;
+        }
+        atomic_store(&shm->mode, g.mode); atomic_store(&shm->reason, g.reason);
+
+        /* learning curve: the pilot's self-reported cost is display-only; interventions are ours */
+        if (have_prop && (last_prop.flags & RX_PF_LEARNER) && last_prop.episode != ep_seen) {
+            ep_seen = last_prop.episode;
+            uint32_t n = atomic_load(&shm->learn_episodes);
+            shm->learn_cost[n & (RX_LEARN_HIST - 1)] = isfinite(last_prop.ep_cost) ? last_prop.ep_cost : 0;
+            shm->learn_iv[n & (RX_LEARN_HIST - 1)] = (uint16_t)(ep_iv > 65535 ? 65535 : ep_iv);
+            shm->learn_avg = isfinite(last_prop.ep_avg) ? last_prop.ep_avg : 0;
+            atomic_store(&shm->learn_episodes, n + 1);
+            ep_iv = 0;
+        }
+
+        if (atomic_exchange(&shm->cmd_reset_stats, 0)) {
+            for (int i = 0; i < RX_R_COUNT; i++) atomic_store(&shm->interventions[i], 0);
+            for (int i = 0; i < RX_HIST_BINS; i++) atomic_store(&shm->lat_hist[i], 0);
+            atomic_store(&shm->lat_max_ns, 0); atomic_store(&shm->exec_max_ns, 0);
+            atomic_store(&shm->deadline_miss, 0); atomic_store(&shm->balls_lost, 0);
+            atomic_store(&shm->pilot_restarts, 0); atomic_store(&shm->pilot_kills, 0);
+            atomic_store(&shm->ticks, 0);
+        }
+        uint64_t t1 = rx_now_ns();
+        uint32_t exec = (uint32_t)(t1 - t0);
+        if (seq > 50) {                                              /* ignore start-up transients */
+            atomic_fetch_add(&shm->lat_hist[rx_lat_bin(lat)], 1);
+            if (lat > atomic_load(&shm->lat_max_ns)) atomic_store(&shm->lat_max_ns, lat);
+            if (exec > atomic_load(&shm->exec_max_ns)) atomic_store(&shm->exec_max_ns, exec);
+            if (lat > period / 2) atomic_fetch_add(&shm->deadline_miss, 1);
+        }
+        atomic_fetch_add(&shm->ticks, 1);
+        rx_rec_t r = { t0, seq, lat, exec, est.x, est.v, sp_m, x_true, in.u_ai, out.u_out, out.margin,
+                       g.mode, g.reason, (uint8_t)present, (uint8_t)!ok_now };
+        rx_shm_push(shm, &r);
+
+        if (o.verbose && t1 - last_print > 1000000000ull) {
+            last_print = t1;
+            fprintf(stderr, "[guardian] %-6s %-10s x=%+6.1fmm sp=%+4.0fmm u=%+.3f  lat max %.0fus  miss %llu  lost %u\n",
+                    rx_mode_name[g.mode], rx_reason_name[g.reason], est.x * 1e3, sp_m * 1e3, out.u_out,
+                    atomic_load(&shm->lat_max_ns) / 1e3, (unsigned long long)atomic_load(&shm->deadline_miss),
+                    atomic_load(&shm->balls_lost));
+        }
+    }
+
+    if (pilot > 0) { kill(pilot, SIGTERM); usleep(50000); kill(pilot, SIGKILL); waitpid(pilot, NULL, 0); }
+    atomic_store(&shm->pilot_pid, 0); atomic_store(&shm->pilot_present, 0);
+    io->write(io, 0.0f);
+    io->close(io);
+    fprintf(stderr, "[guardian] stopped\n");
+    return 0;
+}

@@ -1,0 +1,4 @@
+build/
+results/*.tmp
+__pycache__/
+*.o
