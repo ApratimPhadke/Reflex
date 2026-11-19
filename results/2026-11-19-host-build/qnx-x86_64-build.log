@@ -1,0 +1,10 @@
+mkdir -p build/qnx-x86_64
+ntox86_64-gcc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_QNX_SOURCE -o build/qnx-x86_64/reflex-guardian src/guardian/main.c src/guardian/rx_io.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/ipc/rx_ipc_qnx.c -lm
+ntox86_64-gcc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_QNX_SOURCE -o build/qnx-x86_64/reflex-pilot src/pilot/main.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/ipc/rx_ipc_qnx.c -lm
+ntox86_64-gcc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_QNX_SOURCE -o build/qnx-x86_64/rxctl src/tools/rxctl.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c -lm
+ntox86_64-gcc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_QNX_SOURCE -o build/qnx-x86_64/rxdash src/tools/rxdash.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c -lm -lsocket
+ntox86_64-gcc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_QNX_SOURCE -o build/qnx-x86_64/rx_simtest src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c -lm
+ntox86_64-gcc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_QNX_SOURCE -o build/qnx-x86_64/rxfs src/qnx/rxfs.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c -lm
+ntox86_64-gcc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_QNX_SOURCE -o build/qnx-x86_64/rxham src/qnx/rxham.c -lham
+built: build/qnx-x86_64/reflex-guardian build/qnx-x86_64/reflex-pilot build/qnx-x86_64/rxctl build/qnx-x86_64/rxdash build/qnx-x86_64/rx_simtest build/qnx-x86_64/rxfs build/qnx-x86_64/rxham
+rc=0

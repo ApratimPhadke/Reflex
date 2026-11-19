@@ -1,0 +1,58 @@
+build/linux/rx_simtest
+
+== control rate 1000 Hz ==
+pilot fault  | WITH guardian                | WITHOUT guardian      
+             | ball   detect  edge   interv | ball  
+none         | kept   -       -      0      | kept  
+               nominal tracking RMS error 10.4 mm, interventions 0
+nan          | kept   1ms     12.0cm 1      | LOST  
+flip         | kept   251ms   3.3cm  15     | LOST  
+stuck        | kept   246ms   3.2cm  15     | LOST  
+huge         | kept   1ms     12.0cm 1      | LOST  
+slow         | kept   5ms     12.0cm 1      | kept  
+spin(hang)   | kept   0ms     12.0cm 1      | kept  
+crash        | kept   0ms     12.0cm 1      | LOST  
+
+== control rate 250 Hz ==
+pilot fault  | WITH guardian                | WITHOUT guardian      
+             | ball   detect  edge   interv | ball  
+none         | kept   -       -      0      | kept  
+               nominal tracking RMS error 10.3 mm, interventions 0
+nan          | kept   4ms     12.0cm 1      | kept  
+flip         | kept   244ms   3.2cm  15     | LOST  
+stuck        | kept   244ms   2.8cm  15     | LOST  
+huge         | kept   4ms     12.0cm 1      | LOST  
+slow         | kept   8ms     12.0cm 1      | kept  
+spin(hang)   | kept   0ms     12.0cm 1      | kept  
+crash        | kept   0ms     12.0cm 1      | LOST  
+
+== control rate 50 Hz ==
+pilot fault  | WITH guardian                | WITHOUT guardian      
+             | ball   detect  edge   interv | ball  
+none         | kept   -       -      0      | kept  
+               nominal tracking RMS error 10.1 mm, interventions 0
+nan          | kept   20ms    11.9cm 1      | LOST  
+flip         | kept   260ms   2.2cm  15     | LOST  
+stuck        | kept   260ms   2.3cm  15     | LOST  
+huge         | kept   20ms    12.0cm 1      | LOST  
+slow         | kept   40ms    12.0cm 1      | kept  
+spin(hang)   | kept   0ms     12.0cm 1      | kept  
+crash        | kept   0ms     12.0cm 1      | LOST  
+
+== recoverable-set Monte Carlo (adversary gets one more tick, then fallback only) ==
+  nominal plant                      121012 recoverable states tested, 0 violations
+  ball 15% livelier than modelled    121003 recoverable states tested, 0 violations
+  ball 15% more sluggish             120968 recoverable states tested, 0 violations
+  servo 20% slower than modelled     121366 recoverable states tested, 0 violations
+  livelier ball AND slower servo     121442 recoverable states tested, 0 violations  (informational)
+
+== online learning from an untrained network, guardian in the loop ==
+  episode  50  t= 150s  smoothed cost 1.595  interventions in last 50 episodes: 79
+  episode 100  t= 300s  smoothed cost 0.284  interventions in last 50 episodes: 7
+  episode 150  t= 450s  smoothed cost 0.266  interventions in last 50 episodes: 14
+  episode 200  t= 600s  smoothed cost 0.441  interventions in last 50 episodes: 7
+  episode 250  t= 750s  smoothed cost 0.882  interventions in last 50 episodes: 40
+  balls lost while learning: 0   interventions total: 156   cost 1.595 -> best 0.245
+
+SIMTEST PASSED
+rc=0

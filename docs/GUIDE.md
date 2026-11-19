@@ -16,7 +16,7 @@ Follow the parts in order. Each part ends with a check. Do not start the next pa
 What has and has not been verified before you start:
 
 - Verified on Ubuntu 24.04 (gcc 13): the safety kernel, guardian, pilot, online learning, `rxctl`, `rxdash`, the fault campaign, the flight recorder, the test suite.
-- **Not compiled yet:** the QNX-only files (`src/ipc/rx_ipc_qnx.c`, `src/qnx/rxfs.c`, `src/qnx/rxham.c`, and the `__QNXNTO__` blocks in `src/guardian/main.c`). They were written against the QNX 8.0 documentation without access to the QNX toolchain. Expect a few compile errors in Part 3. Part 3 tells you how to deal with them.
+- Compiled, not yet run: the QNX-only files (`src/ipc/rx_ipc_qnx.c`, `src/qnx/rxfs.c`, `src/qnx/rxham.c`, and the `__QNXNTO__` blocks in `src/guardian/main.c`) build with zero warnings under `-Wall -Wextra` with SDP 8.0 (`ntoaarch64-gcc` and `ntox86_64-gcc` 12.2.0) on 2026-11-19, `make QNX=1 ARCH=aarch64` and `ARCH=x86_64`, including `rxfs` and `rxham` (HAM=1, TRACE=1). Running them on the target is Part 4. If your SDP lacks a library, Part 3 says what to switch off.
 - Not verified: anything about your specific hardware.
 
 ---
