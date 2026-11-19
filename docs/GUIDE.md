@@ -162,17 +162,17 @@ Ubuntu 24.04 is an officially supported QNX host from **SDP 8.0.2** onward, so i
    ```
 6. Look at it the QNX way: `pidin | grep reflex` shows the guardian at priority 50, the pilot at 10 and REPLY-blocked on the guardian.
 7. Spoof test. Start a second pilot by hand: `./reflex-pilot $(./rxctl endpoint)`. It must exit immediately, `./rxctl status` must show `spoofed senders 1 refused`, and `./rxctl events` must list it.
-8. Sporadic budget: stop the guardian (`slay reflex-guardian`), restart with `./reflex-guardian --fresh --sporadic &`, run `./rxctl inject spin` and confirm with `pidin` / `top` that the shell stays responsive.
-9. HAM (if `rxham` built). As root:
+8. Sporadic budget: stop the guardian (`slay reflex-guardian`), restart with `./reflex-guardian --fresh --sporadic &`. `pidin -P reflex-pilot sched` shows the healthy pilot at `10s`. Run `./rxctl inject spin`: the pilot alternates between `10s` and `1s` while spinning, the shell stays responsive, and the guardian kills it as unresponsive after about 1 s.
+9. HAM. The Pi 4 quick-start image has no `ham`; `make deploy` copies the SDP's into `~/reflex`. `qnxuser` may use `sudo` on the QSTI.
    ```sh
    slay reflex-guardian
-   which ham || find / -name ham -type f 2>/dev/null    # if absent, copy it from the SDP: find $QNX_TARGET -name ham
-   ham
-   ./rxham /data/home/qnxuser/reflex/reflex-guardian
-   slay -s KILL reflex-guardian      # kill the guardian itself
-   ./rxctl status                    # "guardian starts" has gone up, ball still on the beam
+   sudo sh -c "./ham > ham.log 2>&1 < /dev/null &"   # redirect: see the note below
+   sudo ./rxham $PWD/reflex-guardian                 # HAM starts the guardian (as root)
+   sudo slay -s KILL reflex-guardian                 # kill the guardian itself
+   ./rxctl status                                    # "guardian starts" +1, ball still on the beam
+   sudo ./rxham -r                                   # stop monitoring
    ```
-   Use the real absolute path of the binary on your target (`pwd` tells you).
+   Notes from the Pi 4 (Phase 2): a guardian started by HAM runs as root, so stop it with `sudo slay`. `ham` runs as two processes (manager and a watcher that restarts it) and does not stop on `slay`; use `sudo kill -9` on both pids from `sudo pidin -f an | grep ham` (as `qnxuser`, `pidin` does not list root's processes). Always start `ham` with its output redirected: a `ham` left behind by a closed ssh session hands its dead stdout to every guardian it restarts. The guardian now ignores `SIGPIPE` from its first line, so this no longer kills it, but the log would be lost.
 
 10. Learning from nothing. This is the centrepiece of the demo:
     ```sh

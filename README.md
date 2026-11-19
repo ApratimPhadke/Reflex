@@ -56,7 +56,7 @@ Most of that work studies the mathematics of the filter and assumes the filter i
 | Need | QNX mechanism | Where |
 |---|---|---|
 | Guardian must never wait for the pilot | Synchronous Send/Receive/Reply: the *pilot* blocks, the guardian only ever replies | `src/ipc/rx_ipc_qnx.c` |
-| One thread, no locks | Timer pulse and pilot message arrive on the same `MsgReceive()` | `rx_server_wait()` |
+| One control thread, no locks | Timer pulse and pilot message arrive on the same `MsgReceive()` | `rx_server_wait()` |
 | Pilot must not drag the guardian's priority down | `_NTO_CHF_FIXED_PRIORITY` disables client-priority inheritance on the channel | `rx_server_create()` |
 | Only the real pilot may command the actuator | Kernel-supplied sender identity (`_msg_info.pid`), others get `EPERM` | `rx_server_wait()` |
 | Detect a crash without polling | `_NTO_CHF_DISCONNECT` pulse | `rx_server_wait()` |
