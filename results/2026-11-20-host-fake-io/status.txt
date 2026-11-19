@@ -1,0 +1,14 @@
+reflex            v4  backend=serial  rate=50Hz
+mode              SAFE (envelope)
+ball              x=+26.7mm v=+0.356m/s setpoint=+80mm  margin=-36.0mm
+command           pilot=-0.2003rad  actuator=-0.2100rad
+ticks             505
+wake latency      max=260.4us  deadline-misses=0
+guardian exec     max=144.5us
+interventions     4 total
+  envelope        4
+pilot             pid=70772 present=1 restarts=1 kills=1 quarantined=0 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000

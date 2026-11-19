@@ -1,0 +1,1 @@
+{"balls_lost": 17, "min_edge_mm": -0.4248677434920689, "watchdog_trips": 1, "commands": 9799, "bad_commands": 0, "samples_sent": 9856, "samples_dropped": 0, "garbage_sent": 197, "replugs": 1, "stalls": 1, "max_abs_cmd_mrad": 210, "t": 197.111, "x_mm": -54.59, "theta_mrad": 210.0, "link": "/tmp/reflex-fake-io-69501"}

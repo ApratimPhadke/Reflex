@@ -1,0 +1,40 @@
+   35.87s ago  tick 8072      sensor lost
+   33.59s ago  tick 8186      AI back in control
+   32.25s ago  tick 8253      guardian took over (envelope)
+   31.41s ago  tick 8295      AI back in control
+   28.13s ago  tick 8459      pilot killed: 3 unsafe commands [70519]
+   28.13s ago  tick 8459      guardian took over (envelope)
+   28.11s ago  tick 8460      pilot died [70519]
+   27.89s ago  tick 8471      pilot spawned [70625]
+   27.19s ago  tick 8506      AI back in control
+   24.07s ago  tick 8662      guardian took over (envelope)
+   23.11s ago  tick 8710      AI back in control
+   22.17s ago  tick 8757      guardian took over (envelope)
+   21.23s ago  tick 8804      AI back in control
+   20.83s ago  tick 8824      pilot killed: 3 unsafe commands [70625]
+   20.83s ago  tick 8824      guardian took over (envelope)
+   20.81s ago  tick 8825      pilot died [70625]
+   20.59s ago  tick 8836      pilot spawned [70680]
+   19.89s ago  tick 8871      AI back in control
+   16.35s ago  tick 9048      guardian took over (envelope)
+   14.99s ago  tick 0         BALL LOST [-191]
+   14.99s ago  tick 9116      sensor lost
+   13.25s ago  tick 0         BALL LOST [196]
+   13.25s ago  tick 9203      sensor lost
+   11.47s ago  tick 0         BALL LOST [-194]
+   11.47s ago  tick 9292      sensor lost
+    9.03s ago  tick 9414      AI back in control
+    8.33s ago  tick 9449      guardian took over (envelope)
+    7.41s ago  tick 9495      AI back in control
+    7.05s ago  tick 0         I/O node link down
+    7.05s ago  tick 9513      sensor lost
+    5.95s ago  tick 0         I/O node link up [3]
+    5.93s ago  tick 9569      pilot killed: 3 unsafe commands [70680]
+    5.93s ago  tick 9569      guardian took over (envelope)
+    5.91s ago  tick 9570      pilot died [70680]
+    5.69s ago  tick 9581      pilot spawned [70772]
+    5.17s ago  tick 9607      AI back in control
+    4.11s ago  tick 9660      guardian took over (envelope)
+    3.23s ago  tick 9704      AI back in control
+    2.85s ago  tick 9723      sensor lost
+    0.03s ago  tick 9864      guardian took over (envelope)

@@ -206,7 +206,7 @@ int main(int argc, char **argv)
     atomic_store(&shm->pilot_present, 0);
     if (o.learn) atomic_store(&shm->training, 1);
 
-    rx_io_t *io = serial ? rx_io_serial_open(&cfg, o.dev) : rx_io_sim_open(&cfg, shm, o.fresh);
+    rx_io_t *io = serial ? rx_io_serial_open(&cfg, o.dev, shm) : rx_io_sim_open(&cfg, shm, o.fresh);
     if (!io) return 1;
 
     /* real-time hygiene: no page faults, fixed priority */
@@ -271,9 +271,10 @@ int main(int argc, char **argv)
         if (lat > 8 * period) t_ideal = t0 + period;                 /* we were stopped/suspended: resync */
         seq++;
 
-        float x_true; int lost;
-        float z = io->read(io, &x_true, &lost);
-        if (isfinite(z)) rx_est_update(&est, &cfg, z);
+        float x_true; int lost, fresh;
+        float z = io->read(io, &x_true, &lost, &fresh);
+        if (fresh && isfinite(z)) rx_est_update(&est, &cfg, z);
+        else rx_est_predict(&est, &cfg);                             /* no new sample this tick */
         int ok_now = isfinite(z) && !lost;
         if (sensor_ok && !ok_now) rx_event_push(shm, seq, serial ? RX_E_SENSOR_LOST : RX_E_BALL_LOST, 0);
         sensor_ok = ok_now;

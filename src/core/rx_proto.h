@@ -77,11 +77,12 @@ static const char *const rx_fault_name[]  = { "none", "nan", "flip", "stuck", "h
 typedef enum {
     RX_E_GUARDIAN_START = 1, RX_E_INTERVENE, RX_E_AI_RESUMED, RX_E_PILOT_SPAWN, RX_E_PILOT_DIED,
     RX_E_KILL_HUNG, RX_E_KILL_STRIKES, RX_E_QUARANTINE, RX_E_RELEASE, RX_E_BALL_LOST, RX_E_SPOOF,
-    RX_E_SENSOR_LOST, RX_E_COUNT
+    RX_E_SENSOR_LOST, RX_E_LINK_DOWN, RX_E_LINK_UP, RX_E_COUNT
 } rx_evcode_e;
 static const char *const rx_event_name[] = { "?", "guardian started", "guardian took over", "AI back in control",
     "pilot spawned", "pilot died", "pilot killed: unresponsive", "pilot killed: 3 unsafe commands",
-    "pilot quarantined", "quarantine released", "BALL LOST", "spoofed sender refused", "sensor lost" };
+    "pilot quarantined", "quarantine released", "BALL LOST", "spoofed sender refused", "sensor lost",
+    "I/O node link down", "I/O node link up" };
 typedef struct { uint64_t t_ns; uint32_t seq; uint16_t code; int32_t arg; } rx_event_t;
 
 /* ---- telemetry record (one per control tick) ------------------------- */

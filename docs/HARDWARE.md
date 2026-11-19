@@ -4,7 +4,7 @@ This guide takes you from a bag of parts to a ball balancing under the Reflex gu
 
 Time: about 2 evenings for the mechanics, 1 for the electronics and firmware, 1-3 for calibration and tuning.
 
-What has not been tested by the author: the firmware has not been compiled or run on a Black Pill, and the rig described here has not been built. The numbers below come from geometry and datasheet values, so treat them as starting points that you confirm with a ruler and the serial monitor.
+Status: the firmware compiles for the Black Pill F401CC (`make fw`, STM32duino core 3.1.0, 2026-11-20); it has not yet run on a board, and the rig described here has not been built. The numbers below come from geometry and datasheet values, so treat them as starting points that you confirm with a ruler and the serial monitor.
 
 ---
 
@@ -242,20 +242,23 @@ Read the chip on the Black Pill: **STM32F411CEU6** (most common) or **STM32F401C
 
 | Chip | `BOARD=` |
 |---|---|
-| STM32F411CEU6 | `BLACKPILL_F411CE` (default) |
-| STM32F401CCU6 | `BLACKPILL_F401CC` |
+| STM32F411CEU6 | `BLACKPILL_F411CE` |
+| STM32F401CCU6 | `BLACKPILL_F401CC` (default: the board this project uses) |
 | STM32F401CEU6 | `BLACKPILL_F401CE` |
 
 ### 5.2 Build
 
 ```sh
-make fw                         # F411 (default)
-BOARD=BLACKPILL_F401CC make fw  # F401CC
+make fw                         # F401CC (default)
+make fw BOARD=BLACKPILL_F411CE  # F411CE
+make fw EMULATE=1               # plant emulator: no sensor/servo needed (build/firmware-emulate/)
 ```
 
 The binary ends up in `build/firmware/reflex_io.ino.bin`.
 
-If it fails with an unknown board option, the STM32 core renamed a menu value. Run `scripts/fw.sh options`, find the right `pnum=` / `usb=` value, and set `FQBN=` accordingly. The firmware has never been compiled before, so small source fixes are expected: copy the full error to me or to Claude Code.
+If it fails with an unknown board option, the STM32 core renamed a menu value. Run `scripts/fw.sh options`, find the right `pnum=` / `usb=` value, and set `FQBN=` accordingly. The only compiler warnings come from the Pololu VL53L0X library header (deprecated `boolean`).
+
+**Emulator build.** `make fw EMULATE=1 && make flash EMULATE=1` turns the board into a simulated ball-and-beam (same model as the guardian's simulator, sensor-like noise) speaking the same protocol, with the same watchdog and clamps. Nothing needs to be wired to it. Use it to test the Pi ↔ USB ↔ board chain before the mechanics exist; `tools/fake_io_node.py` does the same on the laptop without any board.
 
 ### 5.3 Flash
 

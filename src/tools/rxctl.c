@@ -194,6 +194,8 @@ static void campaign(FILE *out)
     fprintf(out, "- backend: `%s`, control rate %.0f Hz\n- each fault is injected into a healthy system and left active for %d s\n"
                  "- *without Reflex* = the same pilot, same faults, guardian in bypass (pilot commands go straight to the actuator)\n\n",
             shm->backend, shm->hz, run_ms / 1000);
+    if (strcmp(shm->backend, "sim"))
+        fprintf(out, "- *closest to beam end* is the guardian's **estimate** (no ground truth on this backend; it includes sensor noise)\n\n");
     fprintf(out, "| # | Injected pilot fault | Guardian took over after | Closest to beam end | Ball (with Reflex) | Pilot restarts | Ball (without Reflex) |\n");
     fprintf(out, "|---|---|---|---|---|---|---|\n");
 

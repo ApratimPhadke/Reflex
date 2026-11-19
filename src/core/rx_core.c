@@ -43,6 +43,11 @@ void rx_est_update(rx_est_t *e, const rx_cfg_t *c, float z)
     e->v = e->v + beta * r / c->dt;
 }
 
+void rx_est_predict(rx_est_t *e, const rx_cfg_t *c)
+{
+    if (e->init) e->x += e->v * c->dt;
+}
+
 /* Margin toward ONE end of the beam (s = +1 right, -1 left).
  * Worst case assumed: for t_delay the actuator pushes the ball toward that end at full authority,
  * after that braking achieves only brake_eta of the ideal deceleration. */

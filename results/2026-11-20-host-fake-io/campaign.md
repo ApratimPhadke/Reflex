@@ -1,0 +1,35 @@
+# Reflex fault campaign
+
+- backend: `serial`, control rate 50 Hz
+- each fault is injected into a healthy system and left active for 4 s
+- *without Reflex* = the same pilot, same faults, guardian in bypass (pilot commands go straight to the actuator)
+
+- *closest to beam end* is the guardian's **estimate** (no ground truth on this backend; it includes sensor noise)
+
+| # | Injected pilot fault | Guardian took over after | Closest to beam end | Ball (with Reflex) | Pilot restarts | Ball (without Reflex) |
+|---|---|---|---|---|---|---|
+| 1 | pilot process killed (SIGKILL) | 15.7 ms | 8.2 cm | kept | 1 | kept |
+| 2 | pilot frozen (SIGSTOP), no CPU use | 17.4 ms | 7.6 cm | kept | 2 | **LOST** |
+| 3 | pilot stuck in an infinite loop, 100% CPU | 15.4 ms | 8.2 cm | kept | 5 | **LOST** |
+| 4 | pilot answers 50 ms late | 18.5 ms | 8.6 cm | kept | 0 | **LOST** |
+| 5 | pilot outputs NaN | 17.9 ms | 7.5 cm | kept | 0 | **LOST** |
+| 6 | pilot outputs 40 rad (limit is 0.21) | 15.0 ms | 8.2 cm | kept | 0 | **LOST** |
+| 7 | pilot output stuck at +max | 15.0 ms | 0.8 cm | kept | 2 | **LOST** |
+| 8 | pilot output sign-inverted (drives the ball off) | 16.0 ms | 2.1 cm | kept | 2 | **LOST** |
+
+**With Reflex: ball kept in 8 of 8 fault scenarios. Without Reflex: ball lost in 7 of 8.**
+
+```
+guardian wake-up latency, 9305 ticks at 50 Hz (period 20000 us)
+         8 - 16       us |##################                      | 45
+        16 - 32       us |#################################       | 921
+        32 - 64       us |####################################### | 2618
+        64 - 128      us |######################################  | 2511
+       128 - 256      us |########################################| 3182
+       256 - 512      us |################                        | 26
+       512 - 1024     us |###                                     | 1
+      1024 - 2048     us |###                                     | 1
+  p50 < 128 us   p99 < 256 us   p99.99 < 2048 us   max = 1132.4 us   late ticks (> period/2) = 0
+```
+
+Guardian worst-case execution time per tick: 448.9 us. Spoofed proposals refused: 0.

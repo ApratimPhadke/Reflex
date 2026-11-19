@@ -8,17 +8,18 @@ Read `README.md`, `docs/ARCHITECTURE.md`, `docs/GUIDE.md` and `docs/HARDWARE.md`
 
 - Host: Ubuntu 24.04 LTS, x86_64. QNX SDP 8.0.x (8.0.2 or newer) in `~/qnx800`. The QNX environment must be loaded in the shell: `source ~/qnx800/qnxsdp-env.sh` (check `$QNX_TARGET`).
 - Target: Raspberry Pi 4 running the QNX 8.0 quick-start image (QSTI). Login `qnxuser`/`qnxuser`, root/`root`. Address in `$PI` (for example `qnxuser@qnxpi.local`). Second target: QNX in QEMU (`ARCH=x86_64`).
-- I/O node: STM32 Black Pill (F411CE unless the user says otherwise) on USB, running `firmware/reflex_io`. Sensor VL53L0X on I2C (PB7 SDA, PB6 SCL), servo MG996R on PA8 with its own 5 V supply.
+- I/O node: STM32 Black Pill **F401CCU6** (`BOARD=BLACKPILL_F401CC`, the default) on USB, running `firmware/reflex_io`. Sensor VL53L0X on I2C (PB7 SDA, PB6 SCL), servo MG996R on PA8 with its own 5 V supply.
 - The Pi Zero 2 W cannot run QNX 8.0 and is not part of this project.
 
 ## Commands
 
 ```sh
 make && make test                      # Linux reference build + full offline test suite (must always pass)
+make test-serial                       # serial path end to end against tools/fake_io_node.py (~5 min)
 make QNX=1 ARCH=aarch64                # QNX build for the Pi 4 (HAM=0 / TRACE=0 only if those libs are truly missing)
 make doctor [PI=...]                   # host + target readiness check
 PI=qnxuser@<ip> make deploy            # build for QNX and copy to ~/reflex on the target
-make fw / make flash                   # firmware via arduino-cli + dfu-util (BOARD=BLACKPILL_F411CE)
+make fw / make flash [EMULATE=1]       # firmware via arduino-cli + dfu-util (BOARD=BLACKPILL_F401CC default)
 python3 tools/train_policy.py          # retrain the simulator pilot (numpy from apt)
 ```
 
@@ -28,6 +29,7 @@ python3 tools/train_policy.py          # retrain the simulator pilot (numpy from
 src/core/rx_core.c     safety kernel: recoverable-set bound, fallback controller, guard decision, plant model, frozen policy
 src/core/rx_learner.c  online evolution-strategy learner for the pilot
 src/core/rx_shm.c      shared-memory telemetry, event log, text commands (used by rxctl/rxdash/rxfs)
+src/core/rx_link.c     I/O node line protocol: strict parser + command formatter (pure, fuzzed by rx_linktest)
 src/ipc/rx_ipc_qnx.c   QNX channel/pulse/Send-Receive-Reply backend  (QNX only)
 src/ipc/rx_ipc_posix.c Linux timerfd + SOCK_SEQPACKET backend (A/B baseline, host tests)
 src/guardian/main.c    the real-time guardian process
@@ -36,6 +38,7 @@ src/pilot/main.c       untrusted pilot process (frozen or learning) with fault-i
 src/tools/             rxctl (CLI, campaign, flight recorder), rxdash (web UI), rx_simtest (tests)
 src/qnx/               rxfs (resource manager /dev/reflex), rxham (High Availability Manager registration)
 firmware/reflex_io/    I/O node sketch (Black Pill / Arduino)
+tools/fake_io_node.py  fake I/O node on a pty (same plant as rx_plant_step), used by make test-serial
 scripts/               Ubuntu 24.04 setup, doctor, firmware build/flash, deploy
 ```
 

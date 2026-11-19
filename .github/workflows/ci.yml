@@ -2,8 +2,9 @@ name: host-tests
 on: [push, pull_request]
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: make
+      - run: make WERROR=1
       - run: make test
+      - run: make test-serial
