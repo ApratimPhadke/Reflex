@@ -11,7 +11,10 @@ ARCH="${ARCH:-aarch64}"
 make QNX=1 ARCH="$ARCH" ${MAKEFLAGS_EXTRA:-}
 ssh "$PI" 'mkdir -p reflex'
 scp -q build/qnx-"$ARCH"/* "$PI":reflex/
-ssh "$PI" 'cd reflex && chmod +x reflex-guardian reflex-pilot rxctl rxdash rx_simtest rxfs rxham 2>/dev/null; ls -l'
+# The Pi 4 quick-start image has no High Availability Manager; ship the SDP's copy next to the binaries.
+HAM_BIN="$QNX_TARGET/${ARCH/aarch64/aarch64le}/usr/sbin/ham"
+[ -f "$HAM_BIN" ] && scp -q "$HAM_BIN" "$PI":reflex/ham || echo "note: $HAM_BIN not found, HAM demo needs ham on the target" >&2
+ssh "$PI" 'cd reflex && chmod +x reflex-guardian reflex-pilot rxctl rxdash rx_simtest rxfs rxham ham 2>/dev/null; ls -l'
 if [ "${1:-}" = "--test" ]; then
     ssh "$PI" 'cd reflex && ./rx_simtest | tail -3'
 fi
