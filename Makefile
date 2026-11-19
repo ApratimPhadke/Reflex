@@ -82,7 +82,7 @@ $(OUT)/rxfs: src/qnx/rxfs.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxfs.c $(CORE) $(LIBS)
 
 $(OUT)/rxham: src/qnx/rxham.c | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/qnx/rxham.c -lham
+	$(CC) $(CFLAGS) -o $@ src/qnx/rxham.c -Wl,-Bstatic -lham -Wl,-Bdynamic   # libham.so is not on the Pi 4 quick-start image
 
 # regenerate the embedded dashboard after editing web/dashboard.html
 src/tools/dash_html.h: web/dashboard.html tools/embed.py
