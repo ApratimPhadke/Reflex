@@ -1,0 +1,7 @@
+Step 10: guardian trace_logf events in a QNX kernel trace (System Profiler format)
+Commands (target, guardian running --hz 250 --learn, train off):
+  sudo tracelogger -s 4 -f /tmp/reflex.kev &; ./rxctl inject flip; sleep 1.5; ./rxctl clear; ./rxctl release
+Host: traceprinter -f reflex.kev   (SDP 8.0 host tool), 297086 lines, kev file 5079835 bytes (not committed)
+User events found (grep USREVENT):
+t:0x2281b672ff CPU:02 USREVENT        :EVENT:42           STR:"reflex SAFE/envelope x=-78mm", d0:0x6c666572 d1:0x53207865 d2:0x2f454641 d3:0x65766e65 d4:0x65706f6c d5:0x2d3d7820 d6:0x6d6d3837 d7:0x00000000
+t:0x22843fbf59 CPU:03 USREVENT        :EVENT:42           STR:"reflex AI/none x=-60mm", d0:0x6c666572 d1:0x41207865 d2:0x6f6e2f49 d3:0x7820656e d4:0x30362d3d d5:0x00006d6d

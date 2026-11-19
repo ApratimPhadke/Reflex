@@ -1,0 +1,29 @@
+$ ./reflex-guardian --fresh &  (guardian.log)
+[guardian] mlockall (continuing): Operation not permitted
+[guardian] pid 2408493  qnx-msgpass  1000 Hz  plant=sim  prio=50  pilot=./reflex-pilot
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+$ ./rxctl status
+reflex            v4  backend=sim  rate=1000Hz
+mode              AI (none)
+ball              x=+69.9mm v=+0.001m/s setpoint=+80mm  margin=110.3mm
+command           pilot=-0.0044rad  actuator=-0.0044rad
+ticks             25077
+wake latency      max=39.7us  deadline-misses=0
+guardian exec     max=50.2us
+interventions     0 total
+pilot             pid=2420782 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000
+$ ./rxctl latency
+guardian wake-up latency, 25093 ticks at 1000 Hz (period 1000 us)
+         4 - 8        us |########################################| 23293
+         8 - 16       us |#############################           | 1713
+        16 - 32       us |#################                       | 81
+        32 - 64       us |#######                                 | 6
+  p50 < 8 us   p99 < 16 us   p99.99 < 64 us   max = 39.7 us   late ticks (> period/2) = 0
+$ ./rxctl events
+   30.14s ago  tick 0         guardian started [1]
+   30.14s ago  tick 1         pilot spawned [2420782]
+   29.64s ago  tick 505       AI back in control

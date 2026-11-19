@@ -1,0 +1,11 @@
+$ pidin | grep -E "reflex|rxdash"
+     pid tid name                         prio STATE          Blocked                     
+ 3301421   1 ./reflex-guardian             50f RECEIVE        1                           
+ 3301421   2 ./reflex-guardian             40f NANOSLEEP                                  
+ 3313711   1 ./rxdash                      10r REPLY          135179                      
+ 3448878   1 ./reflex-pilot                10r REPLY          3301421                     
+
+$ pidin -P reflex-guardian sched
+     pid tid name                         prio STATE          cpu ExtSched            
+ 3301421   1 ./reflex-guardian             50f RECEIVE          3                     
+ 3301421   2 ./reflex-guardian             40f NANOSLEEP        3                     

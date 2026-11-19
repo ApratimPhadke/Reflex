@@ -1,0 +1,16 @@
+Step 6: --sporadic (SCHED_SPORADIC: prio 10, low prio 1, budget 3 ms / 10 ms)
+
+A/B on the Pi 4, healthy pilot (no fault), 1 kHz, 100 samples of `pidin -P reflex-pilot sched`:
+  g-old (sched_ss_max_repl = 8, the original value):        pilot at prio 1 in 35 / 100 samples, at 10 in 65
+  g-new (sched_ss_max_repl = ceil(hz*10ms)*2+4 = 24 @1kHz):  pilot at prio 1 in  0 / 100 samples, at 10 in 100
+  both: 0 interventions, 0 deadline misses in that window (light load)
+Command (on target, per variant v):
+  ./$v --fresh --sporadic --pilot ./reflex-pilot &; sleep 3; ./rxctl reset
+  100x: pidin -P reflex-pilot sched | awk 'NR==2{print $4}'
+Not explained: a standalone probe (/tmp probe spor.c, 1 kHz pulse-driven sporadic thread) never dropped
+to low priority even with max_repl=8, so the exact QNX accounting cause is not verified; the fix is
+justified by the A/B above only.
+
+Spin fault with --sporadic (new build): pilot seen alternating 10s / 1s RUNNING while spinning, killed as
+unresponsive after ~1 s, respawned, quarantined after 3 kills; shell stayed responsive (ssh commands ran
+during the spin); guardian wake latency max 53.4 us, 0 late ticks, 0 balls lost.
