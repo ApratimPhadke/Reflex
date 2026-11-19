@@ -1,0 +1,30 @@
+### regression: ham with a stdout whose reader has exited (as after a closed ssh session)
+$ sudo sh -c "./ham 2>&1 | true &"
+$ sudo ./rxham /data/home/qnxuser/reflex/reflex-guardian
+rxham: HAM now starts, monitors and restarts: /data/home/qnxuser/reflex/reflex-guardian
+--- before kill
+mode              AI (none)
+ball              x=+67.8mm v=+0.025m/s setpoint=+80mm  margin=107.4mm
+pilot             pid=17649712 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1760
+$ sudo slay -s KILL reflex-guardian
+--- 3 s after kill
+mode              AI (none)
+ball              x=-68.8mm v=-0.001m/s setpoint=-80mm  margin=111.4mm
+wake latency      max=36.0us  deadline-misses=0
+pilot             pid=17715250 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1761
+--- 5 s after kill
+pilot             pid=17715250 present=1 restarts=0 kills=0 quarantined=0 fault=none
+guardian starts   1761
+   10.25s ago  tick 0         guardian started [1760]
+   10.24s ago  tick 5         pilot spawned [17649712]
+    9.74s ago  tick 508       AI back in control
+    5.11s ago  tick 0         guardian started [1761]
+    5.11s ago  tick 4         pilot spawned [17715250]
+    4.60s ago  tick 506       AI back in control
+$ sudo ./rxham -r
+rxham: reflex-guardian is no longer monitored
+8

@@ -1,0 +1,61 @@
+campaign: stuck   guarded=kept bypass=LOST
+campaign: flip    guarded=kept bypass=LOST
+report written to campaign.md
+reflex            v4  backend=sim  rate=1000Hz
+mode              SAFE (hold)
+ball              x=+15.3mm v=-0.093m/s setpoint=-80mm  margin=172.7mm
+command           pilot=-0.2072rad  actuator=-0.0224rad
+ticks             254540
+wake latency      max=27.9us  deadline-misses=0
+guardian exec     max=48.2us
+interventions     14 total
+  no-pilot        1
+  stale           3
+  non-finite      1
+  range           1
+  envelope        8
+pilot             pid=20774958 present=1 restarts=12 kills=10 quarantined=0 fault=none
+balls lost        10
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000
+  145.04s ago  tick 113529    AI back in control
+  129.03s ago  tick 129533    AI back in control
+  117.54s ago  tick 141027    guardian took over (non-finite)
+  113.03s ago  tick 145531    AI back in control
+   97.03s ago  tick 161535    AI back in control
+   85.54s ago  tick 173029    guardian took over (range)
+   81.03s ago  tick 177533    AI back in control
+   69.05s ago  tick 189516    BALL LOST
+   67.47s ago  tick 191096    BALL LOST
+   65.89s ago  tick 192676    BALL LOST
+   64.27s ago  tick 194295    AI back in control
+   53.29s ago  tick 205279    guardian took over (envelope)
+   52.50s ago  tick 206069    AI back in control
+   52.27s ago  tick 206298    guardian took over (envelope)
+   51.51s ago  tick 207052    AI back in control
+   51.29s ago  tick 207279    pilot killed: 3 unsafe commands [20766766]
+   51.29s ago  tick 207279    guardian took over (envelope)
+   51.29s ago  tick 207280    pilot died [20766766]
+   51.08s ago  tick 207482    pilot spawned [20770862]
+   50.53s ago  tick 208033    AI back in control
+   50.30s ago  tick 208263    guardian took over (envelope)
+   49.54s ago  tick 209024    AI back in control
+   37.05s ago  tick 221520    BALL LOST
+   35.47s ago  tick 223100    BALL LOST
+   33.89s ago  tick 224680    BALL LOST
+   32.27s ago  tick 226299    AI back in control
+   21.01s ago  tick 237551    guardian took over (envelope)
+   20.23s ago  tick 238334    AI back in control
+   19.96s ago  tick 238603    guardian took over (envelope)
+   19.19s ago  tick 239374    AI back in control
+   18.93s ago  tick 239637    pilot killed: 3 unsafe commands [20770862]
+   18.93s ago  tick 239637    guardian took over (envelope)
+   18.93s ago  tick 239640    pilot died [20770862]
+   18.72s ago  tick 239843    pilot spawned [20774958]
+   18.17s ago  tick 240392    AI back in control
+   17.74s ago  tick 240824    guardian took over (envelope)
+   17.00s ago  tick 241570    AI back in control
+    4.85s ago  tick 253718    BALL LOST
+    3.19s ago  tick 255371    BALL LOST
+    1.54s ago  tick 257024    BALL LOST

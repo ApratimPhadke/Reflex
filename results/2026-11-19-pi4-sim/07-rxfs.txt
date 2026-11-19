@@ -1,0 +1,27 @@
+rxfs: serving /dev/reflex
+nrw-rw-rw-  1 root root 0 2026-11-19 18:42 /dev/reflex
+$ cat /dev/reflex
+reflex            v4  backend=sim  rate=1000Hz
+mode              AI (none)
+ball              x=-69.1mm v=-0.003m/s setpoint=-80mm  margin=110.7mm
+command           pilot=+0.0076rad  actuator=+0.0076rad
+ticks             39857
+wake latency      max=59.4us  deadline-misses=0
+guardian exec     max=68.0us
+interventions     5 total
+  no-pilot        5
+pilot             pid=3448878 present=1 restarts=5 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   1 refused
+learning          off  episodes=0  smoothed cost=0.000
+$ echo "fault nan" > /dev/reflex
+rc=0
+mode              SAFE (non-finite)
+pilot             pid=3448878 present=1 restarts=5 kills=0 quarantined=0 fault=nan
+$ echo bogus > /dev/reflex
+rc=1
+bash: line 1: echo: write error: Invalid argument
+mode              AI (none)
+  non-finite      1
+pilot             pid=3448878 present=1 restarts=5 kills=0 quarantined=0 fault=none

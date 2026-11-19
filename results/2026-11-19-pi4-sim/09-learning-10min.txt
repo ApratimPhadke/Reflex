@@ -1,0 +1,219 @@
+$ ./reflex-guardian --fresh --hz 250 --learn &
+$ ./rxctl period 2000
+=== t=0s
+mode              AI (none)
+interventions     0 total
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=1  smoothed cost=-1.000
+=== t=30s
+mode              AI (none)
+interventions     15 total
+  envelope        15
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=15  smoothed cost=1.979
+=== t=60s
+mode              AI (none)
+interventions     29 total
+  envelope        29
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=30  smoothed cost=1.340
+=== t=90s
+mode              AI (none)
+interventions     40 total
+  envelope        40
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=45  smoothed cost=1.443
+=== t=120s
+mode              AI (none)
+interventions     53 total
+  envelope        53
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=60  smoothed cost=1.622
+=== t=150s
+mode              AI (none)
+interventions     57 total
+  envelope        57
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=75  smoothed cost=1.118
+=== t=180s
+mode              AI (none)
+interventions     63 total
+  envelope        63
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=90  smoothed cost=0.837
+=== t=210s
+mode              AI (none)
+interventions     69 total
+  envelope        69
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=105  smoothed cost=0.788
+=== t=240s
+mode              SAFE (hold)
+interventions     80 total
+  envelope        80
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=120  smoothed cost=1.272
+=== t=270s
+mode              AI (none)
+interventions     89 total
+  envelope        89
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=135  smoothed cost=0.774
+=== t=300s
+mode              AI (none)
+interventions     94 total
+  envelope        94
+pilot             pid=18223154 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=150  smoothed cost=0.731
+$ ./rxctl inject crash   (kill the learner mid-training)
+injected: crash
+    3.01s ago  tick 75538     guardian took over (no-pilot)
+    2.80s ago  tick 75589     pilot spawned [19271719]
+    2.29s ago  tick 75716     AI back in control
+    0.44s ago  tick 76179     guardian took over (envelope)
+=== t=330s
+mode              SAFE (hold)
+interventions     101 total
+  no-pilot        1
+  envelope        100
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=166  smoothed cost=0.698
+=== t=360s
+mode              SAFE (hold)
+interventions     110 total
+  no-pilot        1
+  envelope        109
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=181  smoothed cost=1.460
+=== t=390s
+mode              SAFE (hold)
+interventions     118 total
+  no-pilot        1
+  envelope        117
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=196  smoothed cost=1.143
+=== t=420s
+mode              AI (none)
+interventions     136 total
+  no-pilot        1
+  envelope        135
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=211  smoothed cost=0.831
+=== t=450s
+mode              SAFE (hold)
+interventions     146 total
+  no-pilot        1
+  envelope        145
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=226  smoothed cost=1.404
+=== t=480s
+mode              AI (none)
+interventions     165 total
+  no-pilot        1
+  envelope        164
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=241  smoothed cost=0.971
+=== t=510s
+mode              SAFE (hold)
+interventions     175 total
+  no-pilot        1
+  envelope        174
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=256  smoothed cost=1.078
+=== t=540s
+mode              AI (none)
+interventions     181 total
+  no-pilot        1
+  envelope        180
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=271  smoothed cost=0.900
+=== t=570s
+mode              AI (none)
+interventions     191 total
+  no-pilot        1
+  envelope        190
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=286  smoothed cost=0.919
+=== t=600s
+mode              AI (none)
+interventions     197 total
+  no-pilot        1
+  envelope        196
+pilot             pid=19271719 present=1 restarts=1 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=301  smoothed cost=0.806
+=== events
+   82.24s ago  tick 130763    guardian took over (envelope)
+   81.67s ago  tick 130907    AI back in control
+   70.25s ago  tick 133760    guardian took over (envelope)
+   69.55s ago  tick 133937    AI back in control
+   66.25s ago  tick 134762    guardian took over (envelope)
+   65.56s ago  tick 134933    AI back in control
+   62.17s ago  tick 135780    guardian took over (envelope)
+   61.62s ago  tick 135919    AI back in control
+   54.24s ago  tick 137764    guardian took over (envelope)
+   53.52s ago  tick 137943    AI back in control
+   52.15s ago  tick 138285    guardian took over (envelope)
+   51.63s ago  tick 138416    AI back in control
+   50.15s ago  tick 138786    guardian took over (envelope)
+   49.51s ago  tick 138945    AI back in control
+   48.25s ago  tick 139260    guardian took over (envelope)
+   47.54s ago  tick 139438    AI back in control
+   46.21s ago  tick 139772    guardian took over (envelope)
+   45.46s ago  tick 139959    AI back in control
+   44.21s ago  tick 140271    guardian took over (envelope)
+   43.60s ago  tick 140423    AI back in control
+   42.22s ago  tick 140768    guardian took over (envelope)
+   41.49s ago  tick 140950    AI back in control
+   40.23s ago  tick 141267    guardian took over (envelope)
+   39.48s ago  tick 141453    AI back in control
+   36.19s ago  tick 142275    guardian took over (envelope)
+   35.53s ago  tick 142441    AI back in control
+   32.24s ago  tick 143264    guardian took over (envelope)
+   31.55s ago  tick 143435    AI back in control
+   28.22s ago  tick 144269    guardian took over (envelope)
+   27.58s ago  tick 144429    AI back in control
+   24.22s ago  tick 145269    guardian took over (envelope)
+   23.56s ago  tick 145433    AI back in control
+   20.16s ago  tick 146283    guardian took over (envelope)
+   19.66s ago  tick 146409    AI back in control
+   16.21s ago  tick 147272    guardian took over (envelope)
+   15.48s ago  tick 147453    AI back in control
+   10.07s ago  tick 148805    guardian took over (envelope)
+    9.52s ago  tick 148943    AI back in control
+    7.95s ago  tick 149337    guardian took over (envelope)
+    7.44s ago  tick 149463    AI back in control
+=== guardian-learn.log
+[guardian] mlockall (continuing): Operation not permitted
+[guardian] pid 18210862  qnx-msgpass  250 Hz  plant=sim  prio=50  pilot=./reflex-pilot  LEARNING from scratch
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+[pilot] resumed learning from ./reflex-policy.bin at episode 150
+=== latency
+guardian wake-up latency, 150823 ticks at 250 Hz (period 4000 us)
+         4 - 8        us |########################################| 126319
+         8 - 16       us |##################################      | 23857
+        16 - 32       us |#####################                   | 609
+        32 - 64       us |############                            | 37
+        64 - 128      us |##                                      | 1
+  p50 < 8 us   p99 < 16 us   p99.99 < 64 us   max = 64.2 us   late ticks (> period/2) = 0
+DONE

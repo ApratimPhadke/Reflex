@@ -1,0 +1,45 @@
+$ ./rxctl inject crash x5; ./reflex-pilot $(./rxctl endpoint)
+reflex            v4  backend=sim  rate=1000Hz
+mode              AI (none)
+ball              x=-68.9mm v=-0.008m/s setpoint=-80mm  margin=110.0mm
+command           pilot=+0.0095rad  actuator=+0.0095rad
+ticks             23430
+wake latency      max=57.6us  deadline-misses=0
+guardian exec     max=58.3us
+interventions     5 total
+  no-pilot        5
+pilot             pid=3448878 present=1 restarts=5 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   1 refused
+learning          off  episodes=0  smoothed cost=0.000
+guardian wake-up latency, 23445 ticks at 1000 Hz (period 1000 us)
+         4 - 8        us |########################################| 20828
+         8 - 16       us |###############################         | 2490
+        16 - 32       us |###################                     | 119
+        32 - 64       us |########                                | 8
+  p50 < 8 us   p99 < 16 us   p99.99 < 64 us   max = 57.6 us   late ticks (> period/2) = 0
+   26.50s ago  tick 0         guardian started [1]
+   26.49s ago  tick 4         pilot spawned [3313710]
+   25.99s ago  tick 506       AI back in control
+   22.42s ago  tick 4078      guardian took over (no-pilot)
+   22.42s ago  tick 4080      pilot died [3313710]
+   22.22s ago  tick 4282      pilot spawned [3366958]
+   21.71s ago  tick 4785      AI back in control
+   20.39s ago  tick 6109      guardian took over (no-pilot)
+   20.39s ago  tick 6110      pilot died [3366958]
+   20.18s ago  tick 6313      pilot spawned [3387438]
+   19.68s ago  tick 6816      AI back in control
+   18.36s ago  tick 8141      guardian took over (no-pilot)
+   18.35s ago  tick 8150      pilot died [3387438]
+   18.14s ago  tick 8353      pilot spawned [3407918]
+   17.64s ago  tick 8856      AI back in control
+   16.33s ago  tick 10171     guardian took over (no-pilot)
+   16.32s ago  tick 10180     pilot died [3407918]
+   16.11s ago  tick 10384     pilot spawned [3428398]
+   15.61s ago  tick 10887     AI back in control
+   14.29s ago  tick 12203     guardian took over (no-pilot)
+   14.29s ago  tick 12210     pilot died [3428398]
+   14.09s ago  tick 12412     pilot spawned [3448878]
+   13.58s ago  tick 12915     AI back in control
+   12.25s ago  tick 0         spoofed sender refused [3461164]
