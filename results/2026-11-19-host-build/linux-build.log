@@ -1,0 +1,8 @@
+mkdir -p build/linux
+cc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_GNU_SOURCE -o build/linux/reflex-guardian src/guardian/main.c src/guardian/rx_io.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/ipc/rx_ipc_posix.c -lm -lpthread -lrt
+cc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_GNU_SOURCE -o build/linux/reflex-pilot src/pilot/main.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/ipc/rx_ipc_posix.c -lm -lpthread -lrt
+cc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_GNU_SOURCE -o build/linux/rxctl src/tools/rxctl.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c -lm -lpthread -lrt
+cc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_GNU_SOURCE -o build/linux/rxdash src/tools/rxdash.c src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c -lm -lpthread -lrt 
+cc -O2 -g -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools -D_GNU_SOURCE -o build/linux/rx_simtest src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c -lm -lpthread -lrt
+built: build/linux/reflex-guardian build/linux/reflex-pilot build/linux/rxctl build/linux/rxdash build/linux/rx_simtest 
+rc=0

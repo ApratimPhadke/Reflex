@@ -1,0 +1,5 @@
+rm -rf build
+make                      > linux-build.log
+make test                 > linux-test.log
+make QNX=1 ARCH=aarch64   > qnx-aarch64-build.log
+make QNX=1 ARCH=x86_64    > qnx-x86_64-build.log

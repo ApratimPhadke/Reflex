@@ -67,7 +67,7 @@ rx_event_e rx_server_wait(rx_server_t *s, rx_proposal_t *prop)
         int fd = accept(s->lfd, NULL, NULL);
         if (fd >= 0) {
             struct ucred uc; socklen_t l = sizeof uc;
-            int ok = getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &uc, &l) == 0 && (!s->allowed || uc.pid == s->allowed);
+            int ok = getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &uc, &l) == 0 && s->allowed != 0 && uc.pid == s->allowed;   /* nobody before the first spawn */
             if (!ok) { close(fd); atomic_fetch_add(&s->shm->rejected_senders, 1); rx_event_push(s->shm, 0, RX_E_SPOOF, uc.pid); return RX_EV_REJECTED; }
             if (s->cfd >= 0) close(s->cfd);
             s->cfd = fd; s->pending = 0;

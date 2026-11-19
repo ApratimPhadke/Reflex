@@ -76,6 +76,7 @@ uint64_t rx_server_start_ns(const rx_server_t *s) { return s->t_start; }
 void rx_server_drop(rx_server_t *s)
 {
     if (s->pending) { MsgError(s->pending, ECANCELED); s->pending = 0; }
+    s->pending_scoid = 0;
 }
 
 rx_event_e rx_server_wait(rx_server_t *s, rx_proposal_t *prop)
@@ -99,7 +100,8 @@ rx_event_e rx_server_wait(rx_server_t *s, rx_proposal_t *prop)
     }
 
     /* a message: decide whether we are willing to listen to this sender at all */
-    if (s->allowed && info.pid != s->allowed) {
+    /* Until the guardian has spawned a pilot (allowed == 0) nobody may send. */
+    if (info.pid != s->allowed || s->allowed == 0) {
         MsgError(rcvid, EPERM);
         atomic_fetch_add(&s->shm->rejected_senders, 1);
         rx_event_push(s->shm, 0, RX_E_SPOOF, info.pid);

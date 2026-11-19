@@ -59,7 +59,9 @@ int rx_event_get(const rx_shm_t *s, uint64_t idx, rx_event_t *out)
     uint64_t h = atomic_load_explicit(&s->ev_head, memory_order_acquire);
     if (idx >= h || h - idx >= RX_EVENTS - 2) return 0;
     *out = s->events[idx & (RX_EVENTS - 1)];
-    return 1;
+    atomic_thread_fence(memory_order_acquire);                  /* see rx_shm_get() */
+    h = atomic_load_explicit(&s->ev_head, memory_order_relaxed);
+    return h - idx < RX_EVENTS - 2;
 }
 
 void rx_shm_push(rx_shm_t *s, const rx_rec_t *r)
@@ -74,7 +76,11 @@ int rx_shm_get(const rx_shm_t *s, uint64_t idx, rx_rec_t *out)
     uint64_t h = atomic_load_explicit(&s->head, memory_order_acquire);
     if (idx >= h || h - idx >= RX_RING - 8) return 0;
     *out = s->ring[idx & (RX_RING - 1)];
-    h = atomic_load_explicit(&s->head, memory_order_acquire);   /* overwritten while copying? */
+    /* Overwritten while copying? An acquire load alone does not stop the copy above from being
+     * reordered after it (it only orders LATER accesses), so on a weakly ordered CPU such as the
+     * Pi's Cortex-A72 a torn record could pass the check. The fence orders the copy first. */
+    atomic_thread_fence(memory_order_acquire);
+    h = atomic_load_explicit(&s->head, memory_order_relaxed);
     return h - idx < RX_RING - 8;
 }
 
