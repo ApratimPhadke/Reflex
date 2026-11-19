@@ -58,6 +58,7 @@ int main(int argc, char **argv)
                         "manual start (e.g. for the spoofing test): reflex-pilot $(rxctl endpoint)\n");
         return 2;
     }
+    signal(SIGPIPE, SIG_IGN);            /* inherited stderr may have no reader (see the guardian) */
     pid_t gpid = (pid_t)atoi(argv[1]);
     int chid = atoi(argv[2]);
     float hz = (float)atof(argv[3]);

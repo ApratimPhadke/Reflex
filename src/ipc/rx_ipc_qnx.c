@@ -32,7 +32,7 @@ struct rx_server {
     timer_t timer;
     long    pending;        /* rcvid of the REPLY-blocked pilot, 0 if none */
     int     pending_scoid;
-    pid_t   allowed;
+    _Atomic pid_t allowed;  /* written by the guardian's spawner thread */
     uint64_t t_start;
     rx_shm_t *shm;
 };
@@ -55,15 +55,30 @@ rx_server_t *rx_server_create(uint64_t period_ns, int prio, rx_shm_t *shm)
     struct sigevent ev;
     SIGEV_PULSE_INIT(&ev, s->coid, prio, RX_PULSE_TICK, 0);
     if (timer_create(CLOCK_MONOTONIC, &ev, &s->timer) == -1) { perror("timer_create"); free(s); return NULL; }
+    /* QNX timers expire on clock-tick boundaries, which lie on multiples of ClockPeriod() on
+     * CLOCK_MONOTONIC. Armed relative to "now", the first expiry is rounded up to the next tick,
+     * so expiry k is NOT at start + k*period and a latency measured against that reference is a
+     * constant, arbitrary phase offset (measured on the Pi 4: ~600 us at 1 kHz). We therefore arm
+     * the first expiry at an absolute, tick-aligned time; latency is then measured from the
+     * instant the timer was really programmed to fire. */
+    uint64_t tick = 0;
+    struct _clockperiod cp;
+    if (ClockPeriod(CLOCK_MONOTONIC, NULL, &cp, 0) == 0) tick = cp.nsec;
+    if (tick && period_ns % tick)
+        fprintf(stderr, "[guardian] WARNING: period %llu ns is not a multiple of the %llu ns clock period;"
+                " ticks will be rounded to clock boundaries (jitter up to one clock period)\n",
+                (unsigned long long)period_ns, (unsigned long long)tick);
+    uint64_t align = tick ? tick : 1, first = (rx_now_ns() / align + 2) * align;   /* >= 1 tick ahead */
     struct itimerspec its;
-    its.it_value.tv_sec = (time_t)(period_ns / 1000000000ull);
-    its.it_value.tv_nsec = (long)(period_ns % 1000000000ull);
-    its.it_interval = its.it_value;
-    int flags = 0;
+    its.it_value.tv_sec = (time_t)(first / 1000000000ull);
+    its.it_value.tv_nsec = (long)(first % 1000000000ull);
+    its.it_interval.tv_sec = (time_t)(period_ns / 1000000000ull);
+    its.it_interval.tv_nsec = (long)(period_ns % 1000000000ull);
+    int flags = TIMER_ABSTIME;
 #ifdef TIMER_PRECISE
     flags |= TIMER_PRECISE;         /* do not let timer tolerance coalesce our tick */
 #endif
-    s->t_start = rx_now_ns();
+    s->t_start = first - period_ns; /* the guardian expects expiry k at t_start + k*period, k >= 1 */
     if (timer_settime(s->timer, flags, &its, NULL) == -1) { perror("timer_settime"); free(s); return NULL; }
 
     atomic_store(&shm->chid, s->chid);
