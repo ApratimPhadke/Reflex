@@ -65,20 +65,56 @@ static void usage(void)
          "                     from a real-time loop adds latency)");
 }
 
-static pid_t spawn_pilot(const opts_t *o, int chid, float hz)
+/* Starting a process is a blocking request to the process manager that allocates memory and
+ * loads an executable: on the Pi 4 it took up to ~0.8 ms inside a 1 ms control tick. So the control
+ * loop never spawns. It raises `req` (an atomic store) and a helper thread at a lower priority does
+ * the work; the loop picks the result up from `result` on a later tick. The two threads share
+ * nothing else, and the loop never waits for the helper. */
+typedef struct {
+    const opts_t *o;
+    rx_server_t  *srv;
+    int           chid, prio;
+    float         hz;
+    _Atomic int   req, stop;
+    _Atomic pid_t result;          /* >0 new pilot pid, -1 spawn failed, 0 nothing new */
+} spawner_t;
+
+static pid_t spawn_pilot(const opts_t *o, rx_server_t *srv, int chid, float hz)
 {
     posix_spawnattr_t at;
     posix_spawnattr_init(&at);
     struct sched_param sp; memset(&sp, 0, sizeof sp);
 #ifdef __QNXNTO__
     sp.sched_priority = o->pilot_prio;                       /* never let the child inherit our priority */
-    posix_spawnattr_setschedpolicy(&at, SCHED_RR);
+    int policy = SCHED_RR;
+    if (o->sporadic) {
+        /* The pilot gets prompt service at its normal priority, but only for 3 ms in every 10 ms.
+         * Once the budget is gone it drops to priority 1 until the budget is replenished, so even
+         * a spinning pilot cannot starve the rest of the system. Set at creation, so it applies
+         * before the pilot runs its first instruction. */
+        policy = SCHED_SPORADIC;
+        sp.sched_ss_low_priority = 1;
+        /* Every block/run cycle uses one pending replenishment, and a thread that reaches
+         * max_repl drops to low priority regardless of budget. The pilot wakes once per control
+         * tick, i.e. hz * 10 ms times per replenishment period (10 at 1 kHz). With the old fixed
+         * value of 8 a perfectly healthy pilot at 1 kHz ran permanently at priority 1 (seen with
+         * pidin on the Pi 4). Size it with 2x headroom; SS_REPL_MAX is USHRT_MAX on QNX 8.0. */
+        int repl = (int)(hz * 0.010f + 0.999f) * 2 + 4;
+        sp.sched_ss_max_repl = repl;
+        sp.sched_ss_repl_period.tv_nsec = 10 * 1000000;
+        sp.sched_ss_init_budget.tv_nsec = 3 * 1000000;
+    }
+    posix_spawnattr_setschedpolicy(&at, policy);
+    posix_spawnattr_setschedparam(&at, &sp);
+    /* HOLD: the child is created stopped. We register its pid with the server before it can run,
+     * so its very first message is never mistaken for a spoofing attempt. */
+    posix_spawnattr_setxflags(&at, POSIX_SPAWN_SETSCHEDULER | POSIX_SPAWN_SETSCHEDPARAM | POSIX_SPAWN_HOLD);
 #else
     sp.sched_priority = 0;
     posix_spawnattr_setschedpolicy(&at, SCHED_OTHER);
-#endif
     posix_spawnattr_setschedparam(&at, &sp);
     posix_spawnattr_setflags(&at, POSIX_SPAWN_SETSCHEDULER | POSIX_SPAWN_SETSCHEDPARAM);
+#endif
 
     /* The pilot is told where to send its proposals and nothing else. It does not get to map
      * the guardian's shared memory. */
@@ -97,25 +133,34 @@ static pid_t spawn_pilot(const opts_t *o, int chid, float hz)
     int rc = posix_spawn(&pid, o->pilot_path, NULL, &at, argv, environ);
     posix_spawnattr_destroy(&at);
     if (rc != 0) return 0;
+    rx_server_allow(srv, pid);
 #ifdef __QNXNTO__
-    if (o->sporadic) {
-        /* The pilot gets prompt service at its normal priority, but only for 3 ms in every 10 ms.
-         * Once the budget is gone it drops to priority 1 until the budget is replenished, so even
-         * a spinning pilot cannot starve the rest of the system. */
-        struct sched_param ss; memset(&ss, 0, sizeof ss);
-        ss.sched_priority = o->pilot_prio;
-        ss.sched_ss_low_priority = 1;
-        ss.sched_ss_max_repl = 8;
-        ss.sched_ss_repl_period.tv_nsec = 10 * 1000000;
-        ss.sched_ss_init_budget.tv_nsec = 3 * 1000000;
-        sched_setscheduler(pid, SCHED_SPORADIC, &ss);
-    }
+    kill(pid, SIGCONT);                                      /* release the held child */
 #endif
     return pid;
 }
 
+static void *spawner_main(void *arg)
+{
+    spawner_t *s = arg;
+    struct sched_param sp = { .sched_priority = s->prio };
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);  /* best effort; below the loop, above the pilot */
+    struct timespec nap = { 0, 2 * 1000000 };
+    while (!atomic_load(&s->stop)) {
+        if (atomic_exchange(&s->req, 0)) {
+            pid_t p = spawn_pilot(s->o, s->srv, s->chid, s->hz);
+            atomic_store(&s->result, p > 0 ? p : -1);
+        } else nanosleep(&nap, NULL);
+    }
+    return NULL;
+}
+
 int main(int argc, char **argv)
 {
+    /* First thing: a guardian restarted by HAM may inherit a stderr whose reader is gone (a closed
+     * ssh session). Without this, its first diagnostic line raises SIGPIPE and kills it, HAM
+     * restarts it, and it dies again: seen on the Pi 4 as ~1700 restarts in a few seconds. */
+    signal(SIGPIPE, SIG_IGN);
     opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "" };
     {   /* default pilot path: next to our own binary */
         char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]);
@@ -171,11 +216,20 @@ int main(int argc, char **argv)
     if (rc) fprintf(stderr, "[guardian] WARNING: could not get SCHED_FIFO %d (%s) - timing numbers will not be meaningful\n",
                     o.prio, strerror(rc));
 
-    signal(SIGINT, on_stop); signal(SIGTERM, on_stop); signal(SIGPIPE, SIG_IGN);
+    signal(SIGINT, on_stop); signal(SIGTERM, on_stop);
 
     uint64_t period = (uint64_t)(1e9 / cfg.hz);
     rx_server_t *srv = rx_server_create(period, o.prio, shm);
     if (!srv) return 1;
+
+    static spawner_t spw;                                    /* static: lives as long as the helper thread */
+    spw.o = &o; spw.srv = srv; spw.chid = rx_server_chid(srv); spw.hz = cfg.hz;
+    spw.prio = o.prio - 10 > o.pilot_prio ? o.prio - 10 : o.pilot_prio + 1;
+    pthread_t spw_thread;
+    if (!o.no_pilot && (rc = pthread_create(&spw_thread, NULL, spawner_main, &spw)) != 0) {
+        fprintf(stderr, "[guardian] cannot start the pilot spawner: %s\n", strerror(rc));
+        return 1;
+    }
 
     fprintf(stderr, "[guardian] pid %d  %s  %.0f Hz  plant=%s  prio=%d  pilot=%s%s\n", getpid(), rx_ipc_backend(),
             cfg.hz, io->name, o.prio, o.no_pilot ? "(none)" : o.pilot_path,
@@ -188,6 +242,7 @@ int main(int argc, char **argv)
     memset(&prop, 0, sizeof prop); memset(&last_prop, 0, sizeof last_prop);
     int have_prop = 0, sensor_ok = 1;
     pid_t pilot = 0;
+    int spawn_pending = 0;
     uint32_t seq = 0, last_prop_tick = 0, pilot_started_tick = 0, respawn_at = 0;
     uint32_t offences = 0, offence_age = 0, spawned = 0, ep_seen = 0, ep_iv = 0;
     uint32_t kill_ticks = (uint32_t)(0.4f * cfg.hz), backoff = (uint32_t)(0.2f * cfg.hz);
@@ -274,15 +329,20 @@ int main(int argc, char **argv)
             if (atomic_exchange(&shm->quarantined, 0)) rx_event_push(shm, seq, RX_E_RELEASE, 0);
             offences = 0;
         }
-        if (pilot == 0 && !o.no_pilot && !atomic_load(&shm->quarantined) && seq >= respawn_at) {
-            pilot = spawn_pilot(&o, rx_server_chid(srv), cfg.hz);
-            if (pilot > 0) {
-                rx_server_allow(srv, pilot);
+        if (pilot == 0 && !spawn_pending && !o.no_pilot && !atomic_load(&shm->quarantined) && seq >= respawn_at) {
+            atomic_store(&spw.req, 1);                               /* the helper thread spawns; we never wait */
+            spawn_pending = 1;
+        }
+        if (spawn_pending) {
+            pid_t np = atomic_exchange(&spw.result, 0);
+            if (np > 0) {
+                spawn_pending = 0;
+                pilot = np;
                 atomic_store(&shm->pilot_pid, pilot);
                 pilot_started_tick = last_prop_tick = seq;
                 if (spawned++) atomic_fetch_add(&shm->pilot_restarts, 1);
                 rx_event_push(shm, seq, RX_E_PILOT_SPAWN, pilot);
-            } else respawn_at = seq + (uint32_t)cfg.hz;
+            } else if (np < 0) { spawn_pending = 0; respawn_at = seq + (uint32_t)cfg.hz; }
         }
 
         /* ------------------------------------------------ bookkeeping */
@@ -339,6 +399,12 @@ int main(int argc, char **argv)
         }
     }
 
+    if (!o.no_pilot) {
+        atomic_store(&spw.stop, 1);
+        pthread_join(spw_thread, NULL);
+        pid_t np = atomic_exchange(&spw.result, 0);                  /* spawned while we were stopping */
+        if (np > 0 && pilot <= 0) pilot = np;
+    }
     if (pilot > 0) { kill(pilot, SIGTERM); usleep(50000); kill(pilot, SIGKILL); waitpid(pilot, NULL, 0); }
     atomic_store(&shm->pilot_pid, 0); atomic_store(&shm->pilot_present, 0);
     io->write(io, 0.0f);

@@ -17,7 +17,7 @@
 
 #define RX_SOCK_PATH "/tmp/reflex.sock"
 
-struct rx_server { int tfd, lfd, cfd; int pending; uint64_t backlog; pid_t allowed; uint64_t t_start; rx_shm_t *shm; };
+struct rx_server { int tfd, lfd, cfd; int pending; uint64_t backlog; _Atomic pid_t allowed; uint64_t t_start; rx_shm_t *shm; };
 struct rx_client { int fd; };
 
 const char *rx_ipc_backend(void) { return "posix-seqpacket"; }

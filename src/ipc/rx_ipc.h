@@ -24,10 +24,10 @@ typedef struct rx_client rx_client_t;
 /* guardian side */
 rx_server_t *rx_server_create(uint64_t period_ns, int prio, rx_shm_t *shm);
 rx_event_e   rx_server_wait(rx_server_t *s, rx_proposal_t *prop);
-void         rx_server_allow(rx_server_t *s, pid_t pilot_pid);  /* only this pid may send proposals */
+void         rx_server_allow(rx_server_t *s, pid_t pilot_pid);  /* only this pid may send proposals; thread-safe */
 int          rx_server_publish(rx_server_t *s, const rx_state_t *st); /* 1 = a pilot was unblocked */
 void         rx_server_drop(rx_server_t *s);                    /* forget a pending pilot */
-uint64_t     rx_server_start_ns(const rx_server_t *s);              /* instant the periodic timer was armed */
+uint64_t     rx_server_start_ns(const rx_server_t *s);              /* first timer expiry minus one period: expiry k is due at start + k*period */
 const char  *rx_ipc_backend(void);
 
 /* pilot side */
