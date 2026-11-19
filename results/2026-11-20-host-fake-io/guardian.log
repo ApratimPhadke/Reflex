@@ -1,0 +1,4 @@
+[guardian] WARNING: could not get SCHED_FIFO 50 (Operation not permitted) - timing numbers will not be meaningful
+[guardian] pid 69511  posix-seqpacket  50 Hz  plant=serial  prio=50  pilot=build/linux/reflex-pilot
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+[guardian] stopped

@@ -23,9 +23,10 @@ static double sim_noise(rx_shm_t *shm)
     return (s - 2.0) * 1.732;               /* ~N(0,1) */
 }
 
-static float sim_read(rx_io_t *io, float *x_true, int *lost)
+static float sim_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
 {
     sim_t *s = io->priv;
+    *fresh = 1;
     *lost = s->shm->sim.lost_ticks > 0;
     *x_true = (float)s->shm->sim.x;
     return (float)(s->shm->sim.x + 0.0015 * sim_noise(s->shm));
@@ -77,62 +78,159 @@ rx_io_t *rx_io_sim_open(const rx_cfg_t *cfg, rx_shm_t *shm, int fresh)
 }
 
 /* ------------------------------------------------------------------ serial I/O node
- * ASCII protocol, one line per message (easy to debug with a terminal):
- *   node -> guardian   "P <position_mm>\n"   or "P !\n" when the sensor sees no ball
- *   guardian -> node   "U <beam_angle_millirad>\n"
- * The node centres the beam by itself if it hears no "U" for 150 ms. */
-typedef struct { int fd; char line[64]; int len; float last; uint64_t last_ns; int nosample; } ser_t;
+ * Protocol and parser: src/core/rx_link.h. The node levels the beam by itself if it hears no
+ * "U" for 150 ms, so every failure here ends in "say nothing" and the node takes over.
+ *
+ * Link loss (cable pulled, node reset, pty closed) shows up as a read/write error or EOF. The
+ * control loop then stops using the descriptor and hands it to a helper thread, which closes it,
+ * reopens the device until it is back, and publishes the new descriptor. open()/close()/tcsetattr()
+ * are blocking requests to the driver, so they never run in the control loop. The loop and the
+ * helper share only atomics: `fd` (owned by the loop while >= 0) and `dead_fd` (handed over). */
+#include <pthread.h>
+#include "rx_link.h"
 
-static float ser_read(rx_io_t *io, float *x_true, int *lost)
+typedef struct {
+    const rx_cfg_t *cfg;
+    rx_shm_t   *shm;
+    char        dev[256];
+    _Atomic int fd;             /* -1 = link down, helper is reopening */
+    _Atomic int dead_fd;        /* descriptor the loop gave up on; the helper closes it */
+    _Atomic int stop;
+    pthread_t   helper;
+    int         helper_ok;
+    int         up;             /* loop's view of the link, for up/down events */
+    rx_link_t   link;
+    uint64_t    last_ns;        /* time of the newest "P" line */
+    int         last_valid;     /* newest sample had a position */
+    float       last_x;
+} ser_t;
+
+static int ser_configure(int fd)
+{
+    struct termios t;
+    if (tcgetattr(fd, &t) != 0) return isatty(fd) ? -1 : 0;   /* not a tty (e.g. a FIFO in tests): fine */
+    cfmakeraw(&t);
+    cfsetispeed(&t, B115200); cfsetospeed(&t, B115200);
+    t.c_cflag |= CLOCAL | CREAD;
+    return tcsetattr(fd, TCSANOW, &t);
+}
+
+static int ser_open_dev(const char *dev)
+{
+    int fd = open(dev, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) return -1;
+    if (ser_configure(fd) != 0) { close(fd); return -1; }
+    return fd;
+}
+
+static void *ser_helper(void *arg)
+{
+    ser_t *s = arg;
+    struct timespec nap = { 0, 100 * 1000000 };
+    while (!atomic_load(&s->stop)) {
+        int dead = atomic_exchange(&s->dead_fd, -1);
+        if (dead >= 0) close(dead);
+        if (atomic_load(&s->fd) < 0) {
+            int fd = ser_open_dev(s->dev);
+            if (fd >= 0) atomic_store(&s->fd, fd);
+        }
+        nanosleep(&nap, NULL);
+    }
+    return NULL;
+}
+
+static void ser_link_down(ser_t *s, int fd)
+{
+    atomic_store(&s->fd, -1);
+    atomic_store(&s->dead_fd, fd);       /* the helper closes it and starts reopening */
+}
+
+static float ser_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
 {
     ser_t *s = io->priv;
-    char buf[256];
-    ssize_t n;
-    while ((n = read(s->fd, buf, sizeof buf)) > 0) {
-        for (ssize_t i = 0; i < n; i++) {
-            char ch = buf[i];
-            if (ch == '\n' || ch == '\r') {
-                s->line[s->len] = 0;
-                if (s->line[0] == 'P') {
-                    if (strchr(s->line, '!')) s->nosample = 1;
-                    else { s->last = (float)atof(s->line + 1) * 1e-3f; s->nosample = 0; }
-                    s->last_ns = rx_now_ns();
+    *x_true = NAN; *fresh = 0;
+    int fd = atomic_load(&s->fd);
+    uint64_t now = rx_now_ns();
+    if (fd >= 0 && !s->up) {
+        s->up = 1;
+        rx_link_init(&s->link);
+        s->last_ns = now;                /* give the node one stale window to start talking */
+        s->last_valid = 0;
+        rx_event_push(s->shm, 0, RX_E_LINK_UP, fd);
+    }
+    if (fd >= 0) {
+        char buf[256];
+        for (int i = 0; i < 16; i++) {   /* bounded: at 115200 baud 16*256 bytes is ~350 ms of traffic */
+            ssize_t n = read(fd, buf, sizeof buf);
+            if (n > 0) {
+                if (rx_link_feed(&s->link, buf, (size_t)n) > 0) {
+                    *fresh = 1;
+                    s->last_ns = now;
+                    int was_valid = s->last_valid;
+                    s->last_valid = s->link.valid;
+                    if (s->link.valid) s->last_x = s->link.mm * 1e-3f;
+                    /* The node cannot tell "fell off the end" from "sensor dropout". If the ball
+                     * was last seen within 4 cm of an end and then vanished, count it as lost.
+                     * Evaluation only: the guardian's decisions never use this. */
+                    if (was_valid && !s->link.valid && fabsf(s->last_x) > s->cfg->half_len - 0.04f) {
+                        atomic_fetch_add(&s->shm->balls_lost, 1);
+                        rx_event_push(s->shm, 0, RX_E_BALL_LOST, (int32_t)lrintf(s->last_x * 1000.0f));
+                    }
                 }
-                s->len = 0;
-            } else if (s->len < (int)sizeof s->line - 1) s->line[s->len++] = ch;
+                if ((size_t)n < sizeof buf) break;
+            } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+                ser_link_down(s, fd);    /* EOF or I/O error: cable gone, node reset, pty closed */
+                fd = -1;
+                break;
+            } else break;                /* nothing more to read */
         }
     }
-    *x_true = NAN;
-    int stale = rx_now_ns() - s->last_ns > 200000000ull;
-    *lost = s->nosample || stale;
-    return (*lost) ? NAN : s->last;
+    if (fd < 0 && s->up) {
+        s->up = 0;
+        rx_event_push(s->shm, 0, RX_E_LINK_DOWN, 0);
+    }
+    int stale = fd < 0 || now - s->last_ns > 200000000ull;
+    *lost = stale || !s->last_valid;
+    return *lost ? NAN : s->link.mm * 1e-3f;
 }
 
 static void ser_write(rx_io_t *io, float u)
 {
     ser_t *s = io->priv;
+    int fd = atomic_load(&s->fd);
+    if (fd < 0) return;                  /* link down: the node's own watchdog has the beam */
     char b[32];
-    int n = snprintf(b, sizeof b, "U %d\n", (int)lrintf((isfinite(u) ? u : 0.0f) * 1000.0f));
-    if (write(s->fd, b, n) < 0) { /* link down: the node's own watchdog takes over */ }
+    int n = rx_link_cmd(b, sizeof b, u, (int)lrintf(s->cfg->theta_max * 1000.0f));
+    ssize_t w = write(fd, b, (size_t)n);
+    if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) ser_link_down(s, fd);
 }
 
-static void ser_close(rx_io_t *io) { ser_t *s = io->priv; ser_write(io, 0); close(s->fd); free(s); free(io); }
-
-rx_io_t *rx_io_serial_open(const rx_cfg_t *cfg, const char *dev)
+static void ser_close(rx_io_t *io)
 {
-    (void)cfg;
-    int fd = open(dev, O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (fd < 0) { perror(dev); return NULL; }
-    struct termios t;
-    if (tcgetattr(fd, &t) == 0) {
-        cfmakeraw(&t);
-        cfsetispeed(&t, B115200); cfsetospeed(&t, B115200);
-        t.c_cflag |= CLOCAL | CREAD;
-        tcsetattr(fd, TCSANOW, &t);
-    }
+    ser_t *s = io->priv;
+    ser_write(io, 0);
+    atomic_store(&s->stop, 1);
+    if (s->helper_ok) pthread_join(s->helper, NULL);
+    int fd = atomic_exchange(&s->fd, -1), dead = atomic_exchange(&s->dead_fd, -1);
+    if (fd >= 0) close(fd);
+    if (dead >= 0) close(dead);
+    free(s); free(io);
+}
+
+rx_io_t *rx_io_serial_open(const rx_cfg_t *cfg, const char *dev, rx_shm_t *shm)
+{
     rx_io_t *io = calloc(1, sizeof *io);
     ser_t *s = calloc(1, sizeof *s);
-    s->fd = fd; s->nosample = 1;
+    if (!io || !s) { free(io); free(s); return NULL; }
+    s->cfg = cfg; s->shm = shm;
+    snprintf(s->dev, sizeof s->dev, "%s", dev);
+    atomic_store(&s->dead_fd, -1);
+    int fd = ser_open_dev(dev);
+    if (fd < 0) fprintf(stderr, "[guardian] %s: %s - waiting for the I/O node to appear\n", dev, strerror(errno));
+    atomic_store(&s->fd, fd);
+    int rc = pthread_create(&s->helper, NULL, ser_helper, s);   /* inherits our (lower, not yet RT) priority */
+    if (rc) { fprintf(stderr, "[guardian] serial helper: %s\n", strerror(rc)); if (fd >= 0) close(fd); free(s); free(io); return NULL; }
+    s->helper_ok = 1;
     io->read = ser_read; io->write = ser_write; io->close = ser_close; io->name = "serial"; io->priv = s;
     return io;
 }

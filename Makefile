@@ -10,7 +10,7 @@
 #   Host helpers (Ubuntu 24.04):
 #       make setup                   one-time host install (scripts/setup-host-ubuntu24.sh)
 #       make doctor [PI=user@host]   check the host (and the target) are ready
-#       make fw / make flash         build / DFU-flash the I/O node firmware (BOARD=BLACKPILL_F411CE)
+#       make fw / make flash         build / DFU-flash the I/O node firmware (BOARD=BLACKPILL_F401CC, EMULATE=1 for the plant emulator)
 #       make deploy PI=user@host     build for QNX and copy to the target
 #
 #   Optional QNX pieces, each can be switched off if your image lacks the library:
@@ -24,6 +24,9 @@ TRACE ?= 1
 
 CFLAGS ?= -O2 -g
 CFLAGS += -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools
+ifeq ($(WERROR),1)
+  CFLAGS += -Werror
+endif
 
 ifeq ($(QNX),1)
   ifeq ($(ARCH),x86_64)
@@ -52,10 +55,10 @@ else
   EXTRA   :=
 endif
 
-CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c
+CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c
 HDRS := $(wildcard src/core/*.h src/ipc/*.h src/guardian/*.h src/tools/*.h)
 
-BINS := $(OUT)/reflex-guardian $(OUT)/reflex-pilot $(OUT)/rxctl $(OUT)/rxdash $(OUT)/rx_simtest $(EXTRA)
+BINS := $(OUT)/reflex-guardian $(OUT)/reflex-pilot $(OUT)/rxctl $(OUT)/rxdash $(OUT)/rx_simtest $(OUT)/rx_linktest $(EXTRA)
 
 all: $(BINS)
 	@echo "built: $(BINS)"
@@ -78,6 +81,9 @@ $(OUT)/rxdash: src/tools/rxdash.c src/tools/dash_html.h $(CORE) $(HDRS) | $(OUT)
 $(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(LIBS)
 
+$(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_link.h | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c $(LIBS)
+
 $(OUT)/rxfs: src/qnx/rxfs.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxfs.c $(CORE) $(LIBS)
 
@@ -92,8 +98,13 @@ src/tools/dash_html.h: web/dashboard.html tools/embed.py
 policy:
 	python3 tools/train_policy.py
 
-test: $(OUT)/rx_simtest
+test: $(OUT)/rx_simtest $(OUT)/rx_linktest
+	$(OUT)/rx_linktest
 	$(OUT)/rx_simtest
+
+# end-to-end serial path against tools/fake_io_node.py (Linux build, ~5 minutes)
+test-serial:
+	./scripts/test-serial.sh
 
 clean:
 	rm -rf build
@@ -104,13 +115,15 @@ setup:
 doctor:
 	./scripts/doctor.sh
 
+BOARD   ?= BLACKPILL_F401CC
+EMULATE ?= 0
 fw:
-	./scripts/fw.sh build
+	BOARD=$(BOARD) EMULATE=$(EMULATE) ./scripts/fw.sh build
 
 flash:
-	./scripts/fw.sh flash
+	BOARD=$(BOARD) EMULATE=$(EMULATE) ./scripts/fw.sh flash
 
 deploy:
 	./scripts/deploy.sh
 
-.PHONY: all test clean policy setup doctor fw flash deploy
+.PHONY: all test test-serial clean policy setup doctor fw flash deploy

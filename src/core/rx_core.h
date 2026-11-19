@@ -33,6 +33,7 @@ void  rx_cfg_hardware(rx_cfg_t *c);   /* adjustments for the real beam: slow, no
 /* alpha-beta position/velocity estimator */
 typedef struct { float x, v; int init; } rx_est_t;
 void  rx_est_update(rx_est_t *e, const rx_cfg_t *c, float z);
+void  rx_est_predict(rx_est_t *e, const rx_cfg_t *c);   /* one tick without a new measurement */
 
 /* Distance [m] between the worst-case stopping point and the keep-out strip.
  * > 0  : the safe controller can still stop the ball in time (recoverable)

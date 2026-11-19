@@ -1,0 +1,10 @@
+stuck run 1: true min edge 20.3 mm, balls lost 0
+stuck run 2: true min edge 13.2 mm, balls lost 0
+stuck run 3: true min edge 24.4 mm, balls lost 0
+stuck run 4: true min edge 21.6 mm, balls lost 0
+stuck run 5: true min edge 26.2 mm, balls lost 0
+flip run 1: true min edge 52.1 mm, balls lost 0
+flip run 2: true min edge 17.1 mm, balls lost 0
+flip run 3: true min edge 23.4 mm, balls lost 0
+flip run 4: true min edge 36.6 mm, balls lost 0
+flip run 5: true min edge 28.6 mm, balls lost 0
