@@ -9,7 +9,7 @@ The monitor is only as good as its timing. If it can be delayed, starved or bloc
 ## Three rings
 
 1. **Pilot (untrusted).** `reflex-pilot`, a 3-12-1 tanh network trained in simulation (`tools/train_policy.py`). Low priority, optionally CPU-budgeted. Allowed to fail in any way.
-2. **Guardian (trusted, hard real time).** `reflex-guardian`. One thread, fixed high priority, memory locked, no allocation, no locks, no blocking call except the single `MsgReceive()`.
+2. **Guardian (trusted, hard real time).** `reflex-guardian`. One control thread, fixed high priority, memory locked, no allocation, no locks, no blocking call except the single `MsgReceive()`. Starting a pilot process is a blocking request to the process manager (up to about 0.8 ms on the Pi 4, measured in Phase 2), so it is done by a helper thread at a lower priority (40 by default); the control thread only raises a request flag and later picks up the new pid, both through atomics, and never waits for the helper.
 3. **I/O node (hardware).** A microcontroller that owns the sensor and servo and levels the beam by itself if the guardian goes silent for 150 ms.
 
 On top of ring 2, the QNX High Availability Manager restarts the guardian if it dies. Plant state and counters live in shared memory, so the new guardian continues where the old one stopped.
@@ -76,12 +76,12 @@ The learning curve shown on the dashboard combines the pilot's self-reported cos
 ## Why each QNX mechanism is there
 
 - **Send/Receive/Reply instead of a queue or socket.** The direction of blocking is the safety argument: the client (pilot) blocks, the server (guardian) does not. With a queue the guardian would need its own timeout logic and a second wake-up source.
-- **Pulses.** The periodic timer delivers a pulse to the same channel pilot messages arrive on, so a single-threaded state machine handles both with no shared state and no lock.
+- **Pulses.** The periodic timer delivers a pulse to the same channel pilot messages arrive on, so a single-threaded state machine handles both with no shared state and no lock. QNX timers expire on clock-tick boundaries (multiples of `ClockPeriod()`, 1 ms on the Pi 4 quick-start image), so the first expiry is armed at an absolute, tick-aligned time; wake-up latency is then measured from the instant the timer was really programmed to fire, not from an arbitrary phase.
 - **`_NTO_CHF_FIXED_PRIORITY`.** A QNX server normally runs at the priority of the client it serves. That is the right default for drivers and the wrong one here, because the client is the untrusted party.
 - **The pilot's interface is one channel.** The guardian passes its process id and channel id on the pilot's command line. The pilot does not map the telemetry or control memory.
-- **Sender identity.** `MsgReceive()` reports the sending process. The guardian accepts proposals only from the process it spawned. Any other process that attaches to the channel is answered with `EPERM` and counted (`spoofed senders` in the status).
+- **Sender identity.** `MsgReceive()` reports the sending process. The guardian accepts proposals only from the process it spawned, and from nobody before its first pilot exists. The pilot is created stopped (`POSIX_SPAWN_HOLD`), registered as the allowed sender, and only then released with `SIGCONT`, so its first message can never be mistaken for a spoof. Any other process that attaches to the channel is answered with `EPERM` and counted (`spoofed senders` in the status).
 - **Disconnect pulse.** A dead pilot is reported by the kernel, so crash detection is immediate and costs nothing while the pilot is alive.
-- **`SCHED_SPORADIC`.** QNX 8.0 no longer has the adaptive partitioning scheduler. The budget mechanism that remains is sporadic scheduling: the pilot runs at its normal priority for 3 ms in every 10 ms and at priority 1 after that, so a spinning pilot cannot starve the dashboard, the shell or the network stack.
+- **`SCHED_SPORADIC`.** The policy is set in the spawn attributes, so it applies before the pilot runs. `sched_ss_max_repl` is sized to the control rate (twice the pilot's activations per 10 ms period): with the original fixed value of 8, a healthy pilot at 1 kHz was seen at its low priority 1 in 35 of 100 `pidin` samples on the Pi 4, and in 0 of 100 with the sized value. QNX 8.0 no longer has the adaptive partitioning scheduler. The budget mechanism that remains is sporadic scheduling: the pilot runs at its normal priority for 3 ms in every 10 ms and at priority 1 after that, so a spinning pilot cannot starve the dashboard, the shell or the network stack.
 - **Resource manager.** `/dev/reflex` makes the guardian scriptable from the shell with `cat` and `echo`. It is a separate process reading shared memory, so killing it has no effect on control.
 - **HAM.** Restarting the guardian is delegated to the component QNX provides for exactly that.
 
