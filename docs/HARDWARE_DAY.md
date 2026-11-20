@@ -8,7 +8,7 @@ the push-rod whenever the servo has power.
 4.9-5.3 V at the servo adapter, 3.2-3.4 V at the Black Pill's 3V3, adapter − continuous with Black Pill
 GND, adapter + not continuous with 3V3. Servo red/brown go to the adapter only, never to the Black Pill.
 
-**2. Real firmware (laptop).** The board currently runs the emulator build.
+**2. Real firmware (laptop).** The board currently runs the v2 emulator build.
 ```sh
 make fw                                        # real build: sensor + servo (BOARD=BLACKPILL_F401CC)
 # with the ST-LINK on the SWD header (no buttons), servo supply OFF:
@@ -78,4 +78,5 @@ the exact commands (`./rxctl campaign campaign.md`, `./rxctl latency`, `./rxctl 
 | `rxcal --auto` recovers a wrong-in-every-way calibration; guardian refuses to run without one; campaign 8/8 on that rig | laptop, fake I/O node | `make test-cal`, `make test-serial` |
 | `reflex-demo.sh start/stop/status`, HAM restart, captions | Pi 4, simulated plant | this session; see `results/2026-11-20-pi4-emulated-io/README.md` |
 | Firmware v2 (real and emulator) compiles for the F401CC | laptop | `make fw`, `make fw EMULATE=1` |
-| **Not verified:** firmware v2 on the board, `rxcal` on the board's emulator over the Pi, anything with the real sensor and servo | | |
+| Firmware v2 (emulator) on the board; `rxcal --auto` over QNX recovers its hidden calibration exactly; `reflex-demo.sh` picks the serial backend; campaign 8/8 with all faults injected | Pi 4 + Black Pill | `results/2026-11-20-pi4-emulated-io/` 13-15 |
+| **Not verified:** the real (sensor + servo) firmware on the board, and anything with the real sensor and servo | | |

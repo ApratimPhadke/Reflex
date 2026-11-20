@@ -18,6 +18,7 @@
 #include <sched.h>
 #include <signal.h>
 #include <spawn.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +47,8 @@ typedef struct {
     const char *backend, *dev, *weights; char pilot_path[512];
     int hardware;                  /* serial backend: tell the pilot it flies the real rig (set from --backend) */
     const char *conf; int uncalibrated, check_conf;
+    int pilot_cred; uid_t pilot_uid; gid_t pilot_gid;   /* spawn the pilot with these credentials (QNX) */
+    const char *pilot_user;
 } opts_t;
 
 static void usage(void)
@@ -57,6 +60,8 @@ static void usage(void)
          "  --conf PATH        rig calibration written by rxcal (default: reflex.conf next to this binary)\n"
          "  --uncalibrated     serial backend without reflex.conf, on built-in defaults (debugging only)\n"
          "  --check-conf       only check reflex.conf: exit 0 if valid, 2 if not\n"
+         "  --pilot-user U:G   run the pilot with this uid:gid (QNX). Default when we run as root:\n"
+         "                     the owner of the pilot executable; the pilot never runs as root\n"
          "  --prio N           guardian priority (default 50)\n"
          "  --pilot-prio N     pilot priority (default 10)\n"
          "  --sporadic         QNX: run the pilot under SCHED_SPORADIC with a CPU budget\n"
@@ -113,7 +118,11 @@ static pid_t spawn_pilot(const opts_t *o, rx_server_t *srv, int chid, float hz)
     posix_spawnattr_setschedparam(&at, &sp);
     /* HOLD: the child is created stopped. We register its pid with the server before it can run,
      * so its very first message is never mistaken for a spoofing attempt. */
-    posix_spawnattr_setxflags(&at, POSIX_SPAWN_SETSCHEDULER | POSIX_SPAWN_SETSCHEDPARAM | POSIX_SPAWN_HOLD);
+    unsigned xf = POSIX_SPAWN_SETSCHEDULER | POSIX_SPAWN_SETSCHEDPARAM | POSIX_SPAWN_HOLD;
+    /* The pilot is untrusted: a guardian running as root (e.g. started by HAM) never hands it root.
+     * It runs as o->pilot_uid/gid, decided once at start-up (see main). */
+    if (o->pilot_cred) { posix_spawnattr_setcred(&at, o->pilot_uid, o->pilot_gid); xf |= POSIX_SPAWN_SETCRED; }
+    posix_spawnattr_setxflags(&at, xf);
 #else
     sp.sched_priority = 0;
     posix_spawnattr_setschedpolicy(&at, SCHED_OTHER);
@@ -167,7 +176,7 @@ int main(int argc, char **argv)
      * ssh session). Without this, its first diagnostic line raises SIGPIPE and kills it, HAM
      * restarts it, and it dies again: seen on the Pi 4 as ~1700 restarts in a few seconds. */
     signal(SIGPIPE, SIG_IGN);
-    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0, NULL, 0, 0 };
+    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0, NULL, 0, 0, 0, 0, 0, NULL };
     {   /* default pilot path: next to our own binary */
         char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]);
         snprintf(o.pilot_path, sizeof o.pilot_path, "%s/reflex-pilot", dirname(tmp));
@@ -180,6 +189,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--conf") && n) { o.conf = n; i++; }
         else if (!strcmp(a, "--uncalibrated")) o.uncalibrated = 1;
         else if (!strcmp(a, "--check-conf")) o.check_conf = 1;
+        else if (!strcmp(a, "--pilot-user") && n) { o.pilot_user = n; i++; }
         else if (!strcmp(a, "--prio") && n) { o.prio = atoi(n); i++; }
         else if (!strcmp(a, "--pilot-prio") && n) { o.pilot_prio = atoi(n); i++; }
         else if (!strcmp(a, "--pilot") && n) { snprintf(o.pilot_path, sizeof o.pilot_path, "%s", n); i++; }
@@ -195,6 +205,28 @@ int main(int argc, char **argv)
     }
     int serial = !strcmp(o.backend, "serial");
     o.hardware = serial;
+    {   /* who the untrusted pilot runs as */
+        if (o.pilot_user) {
+            unsigned u, g;
+            if (sscanf(o.pilot_user, "%u:%u", &u, &g) != 2) { fprintf(stderr, "--pilot-user wants UID:GID\n"); return 2; }
+            o.pilot_cred = 1; o.pilot_uid = (uid_t)u; o.pilot_gid = (gid_t)g;
+        } else if (geteuid() == 0 && !o.no_pilot) {
+            struct stat st;
+            if (stat(o.pilot_path, &st) != 0 || st.st_uid == 0) {
+                fprintf(stderr, "[guardian] running as root, and %s is owned by root (or missing): refusing to run the\n"
+                                "[guardian] untrusted pilot as root. Give it an ordinary owner, or pass --pilot-user UID:GID.\n", o.pilot_path);
+                return 2;
+            }
+            o.pilot_cred = 1; o.pilot_uid = st.st_uid; o.pilot_gid = st.st_gid;
+        }
+#ifndef __QNXNTO__
+        if (o.pilot_cred && geteuid() == 0) {
+            fprintf(stderr, "[guardian] --pilot-user / root is only supported on QNX (posix_spawnattr_setcred)\n");
+            return 2;
+        }
+        o.pilot_cred = 0;
+#endif
+    }
     if (o.hz <= 0) o.hz = serial ? 50.0f : 1000.0f;
     if (o.hz < 10 || o.hz > 4000) { fprintf(stderr, "--hz must be 10..4000\n"); return 2; }
 

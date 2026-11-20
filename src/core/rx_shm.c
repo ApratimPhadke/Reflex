@@ -104,8 +104,9 @@ int rx_fault_apply(rx_shm_t *s, const char *name, uint32_t arg)
         if (pilot > 0) kill(pilot, SIGCONT);
         return 0;
     }
-    if (!strcasecmp(name, "crash"))  return pilot > 0 ? kill(pilot, SIGKILL) : -1;
-    if (!strcasecmp(name, "freeze")) return pilot > 0 ? kill(pilot, SIGSTOP) : -1;
+    if ((!strcasecmp(name, "crash") || !strcasecmp(name, "freeze")) && pilot <= 0) { errno = ESRCH; return -1; }
+    if (!strcasecmp(name, "crash"))  return kill(pilot, SIGKILL);
+    if (!strcasecmp(name, "freeze")) return kill(pilot, SIGSTOP);
     for (unsigned i = 1; i < RX_F_COUNT; i++) {
         if (!strcasecmp(name, rx_fault_name[i])) {
             atomic_store(&s->fault_arg, arg ? arg : 50);

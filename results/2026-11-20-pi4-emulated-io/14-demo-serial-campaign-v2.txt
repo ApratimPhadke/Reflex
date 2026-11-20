@@ -1,0 +1,70 @@
+$ ./reflex-guardian --check-conf
+calibration 2026-11-20T12:02:09 (./reflex.conf)
+$ ./reflex-demo.sh start
+reflex-demo: I/O node at /dev/serusb1, calibration 2026-11-20T12:02:09 (./reflex.conf) -> real plant
+reflex-demo: guardian started under HAM (restarted if it dies), plant: serial
+  ham              running (pid 3510321 3473459 )
+  reflex-guardian  running (pid 3563572 )
+  reflex-pilot     running (pid 3579952 )
+  rxfs             running (pid 3612726 )
+  rxdash           running (pid 3633202 )
+  devc-serusb      running (pid 1191979 )
+  I/O node         /dev/serusb1 present
+  reflex            v4  backend=serial  rate=50Hz
+  mode              AI (none)
+  ball              x=-55.8mm v=-0.047m/s setpoint=-80mm  margin=96.8mm
+  command           pilot=+0.0142rad  actuator=+0.0142rad
+  balls lost        0
+  dashboard        http://10.203.87.190:8080/   (or http://qnxpi.local:8080/)
+    3.80s ago  tick 0         I/O node link up [3]
+    3.78s ago  tick 0         I/O node identified (arg = protocol*10 + emulated) [21]
+$ ./rxctl reset; ./rxctl campaign campaign-v2.md
+# Reflex fault campaign
+
+- backend: `serial`, control rate 50 Hz
+- each fault is injected into a healthy system and left active for 4 s
+- *without Reflex* = the same pilot, same faults, guardian in bypass (pilot commands go straight to the actuator)
+
+- *closest to beam end* is the guardian's **estimate** (no ground truth on this backend; it includes sensor noise)
+
+| # | Injected pilot fault | Guardian took over after | Closest to beam end | Ball (with Reflex) | Pilot restarts | Ball (without Reflex) |
+|---|---|---|---|---|---|---|
+| 1 | pilot process killed (SIGKILL) | not needed | 13.0 cm | kept | 0 | kept |
+| 2 | pilot frozen (SIGSTOP), no CPU use | not needed | 13.1 cm | kept | 0 | kept |
+| 3 | pilot stuck in an infinite loop, 100% CPU | 74.0 ms | 11.9 cm | kept | 5 | **LOST** |
+| 4 | pilot answers 50 ms late | 96.0 ms | 11.7 cm | kept | 0 | kept |
+| 5 | pilot outputs NaN | 38.0 ms | 11.9 cm | kept | 0 | **LOST** |
+| 6 | pilot outputs 40 rad (limit is 0.21) | 34.0 ms | 11.8 cm | kept | 0 | **LOST** |
+| 7 | pilot output stuck at +max | 354.0 ms | 1.4 cm | kept | 2 | **LOST** |
+| 8 | pilot output sign-inverted (drives the ball off) | 534.0 ms | 1.6 cm | kept | 2 | **LOST** |
+
+**With Reflex: ball kept in 8 of 8 fault scenarios. Without Reflex: ball lost in 5 of 8.**
+
+```
+guardian wake-up latency, 11575 ticks at 50 Hz (period 20000 us)
+         4 - 8        us |########################################| 8462
+         8 - 16       us |###################################     | 2907
+        16 - 32       us |#######################                 | 190
+        32 - 64       us |############                            | 16
+  p50 < 8 us   p99 < 32 us   p99.99 < 64 us   max = 46.2 us   late ticks (> period/2) = 0
+```
+
+Guardian worst-case execution time per tick: 182.6 us. Spoofed proposals refused: 0.
+$ ./rxctl status
+reflex            v4  backend=serial  rate=50Hz
+mode              SAFE (hold)
+ball              x=-53.5mm v=+0.034m/s setpoint=-80mm  margin=123.3mm
+command           pilot=-0.1817rad  actuator=-0.0570rad
+ticks             11576
+wake latency      max=46.2us  deadline-misses=0
+guardian exec     max=182.6us
+interventions     10 total
+  stale           2
+  non-finite      1
+  range           1
+  envelope        6
+pilot             pid=11038768 present=1 restarts=8 kills=8 quarantined=0 fault=none
+balls lost        13
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000
