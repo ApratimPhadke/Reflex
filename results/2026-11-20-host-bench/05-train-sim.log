@@ -1,0 +1,12 @@
+cloned PD      cost 0.1051
+iter   0  best 0.1084  mean-of-elite 0.1092
+iter   5  best 0.0919  mean-of-elite 0.0921
+iter  10  best 0.1070  mean-of-elite 0.1071
+iter  15  best 0.1171  mean-of-elite 0.1172
+iter  20  best 0.1326  mean-of-elite 0.1330
+iter  25  best 0.1354  mean-of-elite 0.1355
+iter  30  best 0.1435  mean-of-elite 0.1444
+iter  35  best 0.0882  mean-of-elite 0.0884
+iter  39  best 0.0661  mean-of-elite 0.0661
+final          cost 0.1041
+wrote src/core/policy_weights.h

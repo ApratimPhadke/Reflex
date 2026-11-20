@@ -183,15 +183,24 @@ const rx_net_t *rx_policy_net(int which)
     return &NETS[which == RX_NET_HW ? RX_NET_HW : RX_NET_SIM];
 }
 
-float rx_policy_with(const rx_cfg_t *c, const rx_net_t *n, float x, float v, float sp)
+static float net_raw(const rx_net_t *n, float e, float vn, float xn)
 {
-    float in[RX_NET_IN] = { (sp - x) / 0.1f, v / 0.3f, x / 0.2f };
+    const float in[RX_NET_IN] = { e, vn, xn };
     float o = n->b2;
     for (int j = 0; j < RX_NET_H; j++) {
         float s = n->b1[j];
         for (int i = 0; i < RX_NET_IN; i++) s += n->w1[j][i] * in[i];
         o += n->w2[j] * tanhf(s);
     }
+    return o;
+}
+
+/* Equilibrium-corrected: u = net(e, v, x) - net(0, 0, x). With the ball at rest on the setpoint the command
+ * is exactly zero (a level beam), whatever the weights, so the pilot cannot learn a steady-state bias.
+ * rxctl bench found one before this (results/2026-11-20-host-bench/): the frozen pilots stopped 13-23 % short. */
+float rx_policy_with(const rx_cfg_t *c, const rx_net_t *n, float x, float v, float sp)
+{
+    float o = net_raw(n, (sp - x) / 0.1f, v / 0.3f, x / 0.2f) - net_raw(n, 0.0f, 0.0f, x / 0.2f);
     return c->theta_max * tanhf(o);
 }
 

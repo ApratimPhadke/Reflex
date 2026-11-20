@@ -44,12 +44,18 @@ def unpack(w):
 NPARAM = NH * NI + NH + NH + 1
 
 
-def policy(w, x, v, sp):
-    """x, v, sp: (P, E). returns u (P, E)"""
+def net_raw(w, e, vn, xn):
     W1, b1, w2, b2 = unpack(w)
-    f = np.stack([(sp - x) / 0.1, v / 0.3, x / 0.2], axis=-1)           # (P,E,3)
+    f = np.stack([e, vn, xn], axis=-1)                                     # (P,E,3)
     h = np.tanh(np.einsum('pji,pei->pej', W1, f) + b1[:, None, :])        # (P,E,NH)
-    o = np.einsum('pj,pej->pe', w2, h) + b2[:, None]
+    return np.einsum('pj,pej->pe', w2, h) + b2[:, None]
+
+
+def policy(w, x, v, sp):
+    """x, v, sp: (P, E). returns u (P, E). Equilibrium-corrected like rx_policy_with():
+    u = net(e, v, x) - net(0, 0, x), so the ball at rest on the setpoint gets exactly zero tilt."""
+    z = np.zeros_like(x)
+    o = net_raw(w, (sp - x) / 0.1, v / 0.3, x / 0.2) - net_raw(w, z, z, x / 0.2)
     return TH_MAX * np.tanh(o)
 
 

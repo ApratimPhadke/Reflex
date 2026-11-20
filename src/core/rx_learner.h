@@ -26,6 +26,8 @@ typedef struct {
     uint32_t episode;           /* finished episodes */
     float    cost_last;         /* cost of the last finished episode */
     float    cost_avg;          /* smoothed cost (the learning curve) */
+    int      eq_corrected;      /* 1: equilibrium-corrected network like rx_policy_with() (started from frozen
+                                   weights, which are trained in that form); 0: free form (learning from scratch) */
     uint32_t safe_ticks_last;   /* ticks the guardian had to take over in the last episode */
     uint32_t safe_ticks;
     uint64_t rng;

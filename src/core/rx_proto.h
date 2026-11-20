@@ -157,6 +157,15 @@ typedef struct {
     /* demo: a caption the dashboard shows as a banner (rxctl caption / rxctl script) */
     _Atomic uint32_t caption_seq;           /* odd while being written */
     char  caption[96];
+    /* operator control: fly on the fallback controller alone, ignoring the pilot (rxctl bench, dashboard) */
+    _Atomic uint32_t force_fallback;
+    /* last AI-vs-fallback benchmark (rxctl bench), shown on the dashboard */
+    struct {
+        _Atomic uint32_t state;             /* 0 none, 1 running with the AI, 2 running fallback-only, 3 done */
+        _Atomic uint32_t step, nsteps;
+        float settle_s[2], overshoot_mm[2], rms_mm[2];   /* [0] = AI, [1] = fallback only */
+        uint32_t interventions[2], unsettled[2];
+    } bench;
 } rx_shm_t;
 
 #endif

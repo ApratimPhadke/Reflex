@@ -67,6 +67,13 @@ static size_t build_state(void)
         ADD("\"calibrated_at\":\"%s\",\"node_link\":%u,\"node_proto\":%u,\"node_emulated\":%u,\"node_board\":\"%s\",\"caption\":\"%s\",",
             cal, atomic_load(&shm->node_link), atomic_load(&shm->node_proto), atomic_load(&shm->node_emulated), brd, capt);
     }
+    ADD("\"fallback\":%u,\"bench\":{\"state\":%u,\"step\":%u,\"nsteps\":%u,", atomic_load(&shm->force_fallback),
+        atomic_load(&shm->bench.state), atomic_load(&shm->bench.step), atomic_load(&shm->bench.nsteps));
+    ADD("\"settle\":["); n += jnum(p + n, cap - n, shm->bench.settle_s[0], 2); ADD(","); n += jnum(p + n, cap - n, shm->bench.settle_s[1], 2);
+    ADD("],\"over\":["); n += jnum(p + n, cap - n, shm->bench.overshoot_mm[0], 1); ADD(","); n += jnum(p + n, cap - n, shm->bench.overshoot_mm[1], 1);
+    ADD("],\"rms\":["); n += jnum(p + n, cap - n, shm->bench.rms_mm[0], 1); ADD(","); n += jnum(p + n, cap - n, shm->bench.rms_mm[1], 1);
+    ADD("],\"iv\":[%u,%u],\"unsettled\":[%u,%u]},", shm->bench.interventions[0], shm->bench.interventions[1],
+        shm->bench.unsettled[0], shm->bench.unsettled[1]);
     ADD("\"mode\":\"%s\",\"reason\":\"%s\",\"guard\":%u,\"quarantined\":%u,\"fault\":\"%s\",",
         rx_mode_name[atomic_load(&shm->mode) % 3], rx_reason_name[atomic_load(&shm->reason) % RX_R_COUNT],
         atomic_load(&shm->guard_enabled), atomic_load(&shm->quarantined), rx_fault_name[atomic_load(&shm->fault) % RX_F_COUNT]);
