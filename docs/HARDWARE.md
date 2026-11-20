@@ -353,8 +353,15 @@ If your usable travel is not ±200 mm, change `half_len` in `rx_cfg_default()` i
 
 1. Plug the Black Pill into the Pi 4 USB port. SSH into the Pi.
 2. `ls /dev/ser*` before and after plugging in. A new device such as `/dev/serusb1` is the Black Pill.
-3. If nothing appears, as root: `devc-serusb &` and look again. If that binary is missing on the image, find it in the SDP on your laptop (`find $QNX_TARGET -name "devc-serusb*"`) and copy it to the Pi.
-4. `cat /dev/serusb1`: you should see the `P …` stream. Ctrl-C.
+3. If nothing appears, start the USB serial driver. The QNX 8.0 quick-start image for the Pi 4 does **not** include `devc-serusb` (checked 2026-11-20), but the USB host stack (`io-usb-otg`) is running and the board enumerates (`usb` lists `0483:5740 BLACKPILL_F401CC CDC in FS Mode`). Copy the driver from the SDP and start it:
+   ```sh
+   scp $QNX_TARGET/aarch64le/sbin/devc-serusb qnxpi:reflex/      # on the laptop
+   cd ~/reflex && sudo sh -c 'nohup ./devc-serusb > /dev/null 2>&1 &'   # on the Pi (sudo is passwordless on the QSTI)
+   ```
+   `/dev/serusb1` appears at once. This does not survive a reboot.
+4. `cat /dev/serusb1`: you should see the `P …` stream at 50 per second. Ctrl-C.
+
+Note: `devc-serusb` keeps reading the board while nobody has the port open and holds about 2 KB, keeping the *oldest* data when full. So the first lines `cat` prints after a pause can be seconds old. The guardian discards them on open (`tcflush` in `src/guardian/rx_io.c`); measurements in `results/2026-11-20-pi4-emulated-io/`.
 
 **If USB serial cannot be made to work** on QNX, use the hardware UART fallback:
 
