@@ -4,9 +4,13 @@
 #include <string.h>
 #include "rx_learner.h"
 
-#define L_MAGIC 0x524c5231u
+#define L_MAGIC    0x524c5231u     /* free-form network */
+#define L_MAGIC_EQ 0x524c5232u     /* equilibrium-corrected network */
+/* Learning rate. 0.02 failed to learn within 15 simulated minutes from an untrained network on 11 of 48
+ * random seeds (rx_simtest's learning test, results/2026-11-20-host-bench/learner-seeds-*.txt);
+ * 0.0075 failed on none, with a lower median and worst best cost. */
 #ifndef LR0
-#define LR0 0.02f
+#define LR0 0.0075f
 #endif
 
 static float frand(rx_learner_t *L)
@@ -21,9 +25,10 @@ static float nrand(rx_learner_t *L)
     return (s - 3.0f) * 1.41421f;                 /* ~N(0,1) */
 }
 
-static float forward(const float *w, const rx_cfg_t *c, float x, float v, float sp)
+/* raw network output for the three normalised inputs */
+static float net_raw(const float *w, float e, float vn, float xn)
 {
-    const float in[RX_L_IN] = { (sp - x) / 0.1f, v / 0.3f, x / 0.2f };
+    const float in[RX_L_IN] = { e, vn, xn };
     const float *W1 = w, *b1 = w + RX_L_H * RX_L_IN, *w2 = b1 + RX_L_H;
     float o = w2[RX_L_H];
     for (int j = 0; j < RX_L_H; j++) {
@@ -31,6 +36,17 @@ static float forward(const float *w, const rx_cfg_t *c, float x, float v, float 
         for (int i = 0; i < RX_L_IN; i++) s += W1[j * RX_L_IN + i] * in[i];
         o += w2[j] * tanhf(s);
     }
+    return o;
+}
+
+/* eq = 1: the same equilibrium-corrected form as rx_policy_with() (zero command with the ball at rest on the
+ * setpoint), used when learning starts from the frozen weights, which are trained in that form.
+ * eq = 0: the free form, used when learning from scratch. Measured with rx_simtest (15 simulated minutes
+ * from an untrained network): the free form reaches a lower best cost, the corrected one starts better. */
+static float forward(const float *w, int eq, const rx_cfg_t *c, float x, float v, float sp)
+{
+    float o = net_raw(w, (sp - x) / 0.1f, v / 0.3f, x / 0.2f);
+    if (eq) o -= net_raw(w, 0.0f, 0.0f, x / 0.2f);
     return c->theta_max * tanhf(o);
 }
 
@@ -57,6 +73,7 @@ void rx_learner_init(rx_learner_t *L, uint64_t seed, const rx_net_t *pretrained)
         }
         w2[RX_L_H] = pretrained->b2;
         L->sigma = 0.04f; L->lr = LR0 * 0.4f;
+        L->eq_corrected = 1;
     } else {
         /* from scratch: random hidden layer, silent output layer -> the network starts by doing nothing */
         for (int i = 0; i < RX_L_H * RX_L_IN + RX_L_H; i++) L->mean[i] = 0.6f * nrand(L);
@@ -69,7 +86,7 @@ float rx_learner_act(rx_learner_t *L, const rx_cfg_t *c, const rx_state_t *st)
     if (!st->train) {                             /* exploration switched off: fly the best weights found */
         L->have_sp = 0; L->acc = 0; L->n = 0; L->safe_ticks = 0;
         if (L->phase != 0) new_direction(L);      /* drop the half-finished pair */
-        return forward(L->best_cost >= 0 ? L->best : L->mean, c, st->x, st->v, st->sp);
+        return forward(L->best_cost >= 0 ? L->best : L->mean, L->eq_corrected, c, st->x, st->v, st->sp);
     }
     /* an episode is one setpoint segment: it ends when the setpoint jumps */
     if (L->have_sp && st->sp != L->last_sp && L->n > 20) {
@@ -116,7 +133,7 @@ float rx_learner_act(rx_learner_t *L, const rx_cfg_t *c, const rx_state_t *st)
     L->safe_ticks += (uint32_t)safe;
     L->n++;
 
-    return forward(L->cur, c, st->x, st->v, st->sp);
+    return forward(L->cur, L->eq_corrected, c, st->x, st->v, st->sp);
 }
 
 int rx_learner_save(const rx_learner_t *L, const char *path)
@@ -125,7 +142,7 @@ int rx_learner_save(const rx_learner_t *L, const char *path)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "wb");
     if (!f) return -1;
-    uint32_t hdr[3] = { L_MAGIC, RX_L_NP, L->episode };
+    uint32_t hdr[3] = { L->eq_corrected ? L_MAGIC_EQ : L_MAGIC, RX_L_NP, L->episode };
     int ok = fwrite(hdr, sizeof hdr, 1, f) == 1 && fwrite(L->mean, sizeof L->mean, 1, f) == 1
           && fwrite(&L->sigma, sizeof L->sigma, 1, f) == 1 && fwrite(&L->cost_avg, sizeof L->cost_avg, 1, f) == 1;
     fclose(f);
@@ -137,12 +154,12 @@ int rx_learner_load(rx_learner_t *L, const char *path)
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
     uint32_t hdr[3]; float mean[RX_L_NP], sigma, avg;
-    int ok = fread(hdr, sizeof hdr, 1, f) == 1 && hdr[0] == L_MAGIC && hdr[1] == RX_L_NP
+    int ok = fread(hdr, sizeof hdr, 1, f) == 1 && (hdr[0] == L_MAGIC || hdr[0] == L_MAGIC_EQ) && hdr[1] == RX_L_NP
           && fread(mean, sizeof mean, 1, f) == 1 && fread(&sigma, sizeof sigma, 1, f) == 1 && fread(&avg, sizeof avg, 1, f) == 1;
     fclose(f);
     if (!ok) return -1;
     memcpy(L->mean, mean, sizeof mean);
-    L->sigma = sigma; L->cost_avg = avg; L->episode = hdr[2];
+    L->sigma = sigma; L->cost_avg = avg; L->episode = hdr[2]; L->eq_corrected = hdr[0] == L_MAGIC_EQ;
     memset(L->mom, 0, sizeof L->mom);
     new_direction(L);
     return 0;

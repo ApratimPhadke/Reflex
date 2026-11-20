@@ -1,0 +1,20 @@
+cloned PD      cost 0.2308  vetoes/min 0.00  lost 0
+iter   0  best 0.2124  mean-of-elite 0.2129
+iter   5  best 0.1695  mean-of-elite 0.1700
+iter  10  best 0.2170  mean-of-elite 0.2174
+iter  15  best 0.1881  mean-of-elite 0.1889
+iter  20  best 0.1853  mean-of-elite 0.1859
+iter  25  best 0.2211  mean-of-elite 0.2216
+iter  30  best 0.2505  mean-of-elite 0.2523
+iter  35  best 0.2314  mean-of-elite 0.2318
+iter  40  best 0.1979  mean-of-elite 0.1984
+iter  45  best 0.2060  mean-of-elite 0.2067
+iter  50  best 0.2270  mean-of-elite 0.2278
+iter  55  best 0.2042  mean-of-elite 0.2045
+iter  60  best 0.2039  mean-of-elite 0.2044
+iter  65  best 0.2227  mean-of-elite 0.2231
+iter  70  best 0.2164  mean-of-elite 0.2167
+iter  75  best 0.1843  mean-of-elite 0.1853
+iter  79  best 0.2002  mean-of-elite 0.2007
+final          cost 0.1830  vetoes/min 0.05  lost 0 (64 episodes x 60 s, held-out seed)
+wrote /tmp/claude-1000/-home-abc-A-I-M-hackathonproject-v4-reflex/16459c91-87c6-4cb8-b34d-e7f46c16b15f/scratchpad/pw_hw_80.h

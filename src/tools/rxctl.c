@@ -38,6 +38,8 @@ static void usage(void)
          "  campaign [file.md]     run the full fault campaign, with and without the guardian\n"
          "  caption [text]         show a banner on the dashboard (no text = clear it)\n"
          "  wipe                   (no guardian running) delete the shared memory: fresh world and counters next start\n"
+         "  fallback on|off        fly on the fallback controller alone (the pilot keeps running, ignored)\n"
+         "  bench [f.md] [--csv f] [--hold s]  same setpoint sequence with the AI, then fallback-only; compare\n"
          "  script <file> [--check] play a timed demo script (demo/video.rxs); --check only validates it");
 }
 
@@ -354,6 +356,114 @@ static int cmd_script(const char *path, int check_only)
     return 0;
 }
 
+
+/* ------------------------------------------------------------------ bench
+ * The same setpoint sequence flown twice: once with the AI pilot in charge (guardian on as always),
+ * once on the guardian's fallback controller alone (rxctl fallback on). Measured on the guardian's
+ * own telemetry: ground truth on the simulator, the estimate on the serial backend.
+ *   settling time  last time |x - sp| was outside the band, after the step (band: 10 % of the step, at least 5 mm)
+ *   overshoot      furthest the position went past the new setpoint, in the direction of the step
+ *   RMS error      over every tick of the sequence
+ *   interventions  guardian take-overs during the sequence */
+static const int BENCH_SP_MM[] = { 80, -80, 40, -40, 0 };
+#define BENCH_N ((int)(sizeof BENCH_SP_MM / sizeof BENCH_SP_MM[0]))
+typedef struct { double settle_s[BENCH_N], over_mm[BENCH_N]; int settled[BENCH_N]; double rms_mm; unsigned interventions; long n; } bench_res_t;
+
+static uint64_t iv_total(void) { uint64_t t = 0; for (int i = 1; i < RX_R_COUNT; i++) t += atomic_load(&shm->interventions[i]); return t; }
+
+static void bench_run(int fallback, double hold_s, FILE *csv, bench_res_t *R)
+{
+    memset(R, 0, sizeof *R);
+    rx_command(shm, "fault clear"); rx_command(shm, "guard on"); rx_command(shm, "release"); rx_command(shm, "train off");
+    rx_command(shm, "sp 0");
+    rx_command(shm, fallback ? "fallback on" : "fallback off");
+    atomic_store(&shm->bench.state, fallback ? 2u : 1u);
+    if (!fallback && !wait_ai(15000)) fprintf(stderr, "bench: warning, the AI did not take control within 15 s\n");
+    msleep(3000);                                              /* settle at the centre */
+    uint64_t iv0 = iv_total(), idx = atomic_load(&shm->head);
+    double se = 0; int prev = 0;
+    for (int i = 0; i < BENCH_N; i++) {
+        atomic_store(&shm->bench.step, (uint32_t)i + 1);
+        char c[32]; snprintf(c, sizeof c, "sp %d", BENCH_SP_MM[i]); rx_command(shm, c);
+        uint64_t t0 = rx_now_ns(), end = t0 + (uint64_t)(hold_s * 1e9);
+        double d = (BENCH_SP_MM[i] - prev) * 1e-3, band = fmax(0.005, 0.1 * fabs(d)), last_out = 0, over = 0;
+        double dir = d > 0 ? 1 : (d < 0 ? -1 : 0), sp = BENCH_SP_MM[i] * 1e-3;
+        while (rx_now_ns() < end) {
+            uint64_t h = atomic_load(&shm->head);
+            rx_rec_t r;
+            for (; idx < h; idx++) {
+                if (!rx_shm_get(shm, idx, &r) || r.t_ns < t0) continue;
+                double x = isfinite(r.x_true) ? r.x_true : r.x, e = x - sp, t = (r.t_ns - t0) * 1e-9;
+                if (!isfinite(x)) continue;
+                if (fabs(e) > band) last_out = t;
+                if (dir * e > over) over = dir * e;
+                se += e * e; R->n++;
+                if (csv) fprintf(csv, "%s,%d,%.4f,%.1f,%.2f,%u\n", fallback ? "fallback" : "ai", i + 1, t, sp * 1e3, x * 1e3, r.mode);
+            }
+            msleep(10);
+        }
+        R->settle_s[i] = last_out; R->over_mm[i] = over * 1e3;
+        R->settled[i] = last_out < hold_s - 0.5;                 /* still outside the band in the last 0.5 s: not settled */
+        prev = BENCH_SP_MM[i];
+    }
+    R->rms_mm = R->n ? sqrt(se / (double)R->n) * 1e3 : NAN;
+    R->interventions = (unsigned)(iv_total() - iv0);
+    rx_command(shm, "fallback off");
+}
+
+static void bench_summary(const bench_res_t *R, double *settle, double *over, unsigned *unsettled)
+{
+    double s = 0, o = 0; int k = 0; *unsettled = 0;
+    for (int i = 0; i < BENCH_N; i++) {
+        if (BENCH_SP_MM[i] == (i ? BENCH_SP_MM[i - 1] : 0)) continue;
+        if (R->settled[i]) { s += R->settle_s[i]; k++; } else (*unsettled)++;
+        o = fmax(o, R->over_mm[i]);
+    }
+    *settle = k ? s / k : NAN; *over = o;
+}
+
+static int cmd_bench(FILE *out, const char *csv_path, double hold_s)
+{
+    FILE *csv = csv_path ? fopen(csv_path, "w") : NULL;
+    if (csv_path && !csv) { perror(csv_path); return 1; }
+    if (csv) fprintf(csv, "pilot,step,t_s,sp_mm,x_mm,mode\n");
+    atomic_store(&shm->bench.nsteps, (uint32_t)BENCH_N);
+    bench_res_t R[2];
+    bench_run(0, hold_s, csv, &R[0]);
+    bench_run(1, hold_s, csv, &R[1]);
+    if (csv) fclose(csv);
+    rx_command(shm, "sp auto");
+    double st[2], ov[2]; unsigned un[2];
+    for (int m = 0; m < 2; m++) {
+        bench_summary(&R[m], &st[m], &ov[m], &un[m]);
+        shm->bench.settle_s[m] = (float)st[m]; shm->bench.overshoot_mm[m] = (float)ov[m]; shm->bench.rms_mm[m] = (float)R[m].rms_mm;
+        shm->bench.interventions[m] = R[m].interventions; shm->bench.unsettled[m] = un[m];
+    }
+    atomic_store(&shm->bench.state, 3u);
+
+    fprintf(out, "# Reflex benchmark: AI pilot vs fallback controller alone\n\n");
+    fprintf(out, "- backend: `%s`, control rate %.0f Hz; position: %s\n", shm->backend, shm->hz,
+            strcmp(shm->backend, "sim") ? "the guardian's estimate (no ground truth on this backend)" : "simulator ground truth");
+    fprintf(out, "- setpoint sequence (mm), each held %.0f s:", hold_s);
+    for (int i = 0; i < BENCH_N; i++) fprintf(out, " %d", BENCH_SP_MM[i]);
+    fprintf(out, "\n- settling: last time outside a band of 10 %% of the step (at least 5 mm); a step still outside it in the last 0.5 s counts as not settled\n\n");
+    fprintf(out, "| | AI pilot (guardian on) | fallback controller alone |\n|---|---|---|\n");
+    fprintf(out, "| mean settling time | %.2f s | %.2f s |\n", st[0], st[1]);
+    fprintf(out, "| worst overshoot | %.1f mm | %.1f mm |\n", ov[0], ov[1]);
+    fprintf(out, "| RMS tracking error | %.1f mm | %.1f mm |\n", R[0].rms_mm, R[1].rms_mm);
+    fprintf(out, "| guardian interventions | %u | %u |\n", R[0].interventions, R[1].interventions);
+    fprintf(out, "| steps not settled | %u of %d | %u of %d |\n\n", un[0], BENCH_N, un[1], BENCH_N);
+    fprintf(out, "| step | setpoint | AI settling | AI overshoot | fallback settling | fallback overshoot |\n|---|---|---|---|---|---|\n");
+    for (int i = 0; i < BENCH_N; i++)
+        fprintf(out, "| %d | %+d mm | %s%.2f s | %.1f mm | %s%.2f s | %.1f mm |\n", i + 1, BENCH_SP_MM[i],
+                R[0].settled[i] ? "" : "not settled, ", R[0].settle_s[i], R[0].over_mm[i],
+                R[1].settled[i] ? "" : "not settled, ", R[1].settle_s[i], R[1].over_mm[i]);
+    double fs = (st[1] - st[0]) / st[1] * 100, fr = (R[1].rms_mm - R[0].rms_mm) / R[1].rms_mm * 100;
+    fprintf(out, "\nAI vs fallback: settling %s by %.0f %%, RMS error %s by %.0f %%, %u interventions while the AI flew.\n",
+            fs >= 0 ? "faster" : "SLOWER", fabs(fs), fr >= 0 ? "lower" : "HIGHER", fabs(fr), R[0].interventions);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "help")) { usage(); return argc < 2 ? 2 : 0; }
@@ -399,6 +509,24 @@ int main(int argc, char **argv)
         rx_command(shm, t);
     }
     else if (!strcmp(c, "script") && argc >= 3) return cmd_script(argv[2], argc >= 4 && !strcmp(argv[3], "--check"));
+    else if (!strcmp(c, "bench")) {                            /* bench [file.md] [--csv file] [--hold s] */
+        const char *md = NULL, *csvp = NULL; double hold = 5.0;
+        for (int i = 2; i < argc; i++) {
+            if (!strcmp(argv[i], "--csv") && i + 1 < argc) csvp = argv[++i];
+            else if (!strcmp(argv[i], "--hold") && i + 1 < argc) hold = atof(argv[++i]);
+            else md = argv[i];
+        }
+        if (!(hold >= 2 && hold <= 30)) { fprintf(stderr, "rxctl bench: --hold 2..30 s\n"); return 2; }
+        FILE *f = md ? fopen(md, "w") : stdout;
+        if (!f) { perror(md); return 1; }
+        int rc = cmd_bench(f, csvp, hold);
+        if (f != stdout) { fclose(f); printf("report written to %s\n", md); }
+        return rc;
+    }
+    else if (!strcmp(c, "fallback") && argc >= 3) {
+        snprintf(line, sizeof line, "fallback %s", argv[2]);
+        if (rx_command(shm, line) != 0) { usage(); return 2; }
+    }
     else if (!strcmp(c, "campaign")) {
         FILE *f = argc >= 3 ? fopen(argv[2], "w") : stdout;
         if (!f) { perror(argv[2]); return 1; }

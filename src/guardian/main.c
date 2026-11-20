@@ -351,7 +351,8 @@ int main(int argc, char **argv)
         if (t0 - sp_phase_ns >= half) { sp_phase_ns = t0; sp_sign = -sp_sign; }
         float sp_m = atomic_load(&shm->sp_auto) ? 0.08f * sp_sign : atomic_load(&shm->sp_manual_mm) * 1e-3f;
 
-        int present = atomic_load(&shm->pilot_present);
+        /* force_fallback (operator, rxctl bench): treat the pilot as absent. Only ever more conservative. */
+        int present = atomic_load(&shm->pilot_present) && !atomic_load(&shm->force_fallback);
         int training = atomic_load(&shm->training);
         rx_guard_in_t in = { (int)atomic_load(&shm->guard_enabled), present, have_prop,
                              seq - last_prop.seq, have_prop ? last_prop.u : NAN };

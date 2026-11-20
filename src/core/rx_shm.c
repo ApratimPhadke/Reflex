@@ -150,6 +150,10 @@ int rx_command(rx_shm_t *s, const char *line)
     if (!strcasecmp(a, "train") && k >= 2) { atomic_store(&s->training, !strcasecmp(b, "on")); return 0; }
     if (!strcasecmp(a, "period") && k >= 2) { int ms = atoi(b); if (ms < 500 || ms > 60000) { errno = EINVAL; return -1; } atomic_store(&s->sp_period_ms, (uint32_t)ms); return 0; }
     if (!strcasecmp(a, "release")) { atomic_store(&s->cmd_release_quarantine, 1); return 0; }
+    if (!strcasecmp(a, "fallback") && k >= 2) {                  /* fly on the fallback controller alone */
+        if (strcasecmp(b, "on") && strcasecmp(b, "off")) { errno = EINVAL; return -1; }
+        atomic_store(&s->force_fallback, !strcasecmp(b, "on")); return 0;
+    }
     if (!strcasecmp(a, "reset"))   { atomic_store(&s->cmd_reset_stats, 1); return 0; }
     errno = EINVAL;
     return -1;
@@ -173,7 +177,7 @@ int rx_status_text(const rx_shm_t *s, char *buf, int cap)
         "interventions     %llu total\n",
         RX_VERSION, s->backend, s->hz,
         rx_mode_name[atomic_load(&s->mode) % 3], rx_reason_name[atomic_load(&s->reason) % RX_R_COUNT],
-        atomic_load(&s->guard_enabled) ? "" : "  ** GUARDIAN BYPASSED **",
+        !atomic_load(&s->guard_enabled) ? "  ** GUARDIAN BYPASSED **" : atomic_load(&s->force_fallback) ? "  (fallback only: pilot ignored)" : "",
         r.x * 1e3, r.v, r.sp * 1e3, r.margin * 1e3, r.u_ai, r.u_out,
         (unsigned long long)ticks,
         atomic_load(&s->lat_max_ns) / 1e3, (unsigned long long)atomic_load(&s->deadline_miss),
