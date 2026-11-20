@@ -46,6 +46,7 @@ typedef struct {
     float hz; int prio, pilot_prio; int sporadic, no_pilot, fresh, verbose, learn;
     const char *backend, *dev, *weights; char pilot_path[512];
     int hardware;                  /* serial backend: tell the pilot it flies the real rig (set from --backend) */
+    const char *plant;             /* "beam" (default) or "joint" */
     const char *conf; int uncalibrated, check_conf;
     int pilot_cred; uid_t pilot_uid; gid_t pilot_gid;   /* spawn the pilot with these credentials (QNX) */
     const char *pilot_user;
@@ -56,6 +57,7 @@ static void usage(void)
     puts("reflex-guardian [options]\n"
          "  --hz N             control rate (default 1000 for sim, 50 for serial)\n"
          "  --backend sim|serial\n"
+         "  --plant beam|joint simulated plant (default beam); joint = a robot joint with gravity load, sim only\n"
          "  --dev PATH         serial device of the I/O node (e.g. /dev/serusb1)\n"
          "  --conf PATH        rig calibration written by rxcal (default: reflex.conf next to this binary)\n"
          "  --uncalibrated     serial backend without reflex.conf, on built-in defaults (debugging only)\n"
@@ -136,9 +138,10 @@ static pid_t spawn_pilot(const opts_t *o, rx_server_t *srv, int chid, float hz)
     snprintf(a_pid, sizeof a_pid, "%d", (int)getpid());
     snprintf(a_chid, sizeof a_chid, "%d", chid);
     snprintf(a_hz, sizeof a_hz, "%.3f", hz);
-    char *argv[10]; int n = 0;
+    char *argv[12]; int n = 0;
     argv[n++] = (char *)o->pilot_path; argv[n++] = a_pid; argv[n++] = a_chid; argv[n++] = a_hz;
     if (o->hardware) argv[n++] = "--hardware";              /* real rig: fly the hardware-trained weights */
+    if (!strcmp(o->plant, "joint")) { argv[n++] = "--plant"; argv[n++] = "joint"; }
     if (o->learn == 1) argv[n++] = "--learn";
     if (o->learn == 2) argv[n++] = "--learn-from-sim";
     if (o->learn) { argv[n++] = "--weights"; argv[n++] = (char *)o->weights; }
@@ -176,7 +179,7 @@ int main(int argc, char **argv)
      * ssh session). Without this, its first diagnostic line raises SIGPIPE and kills it, HAM
      * restarts it, and it dies again: seen on the Pi 4 as ~1700 restarts in a few seconds. */
     signal(SIGPIPE, SIG_IGN);
-    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0, NULL, 0, 0, 0, 0, 0, NULL };
+    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0, NULL, NULL, 0, 0, 0, 0, 0, NULL };
     {   /* default pilot path: next to our own binary */
         char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]);
         snprintf(o.pilot_path, sizeof o.pilot_path, "%s/reflex-pilot", dirname(tmp));
@@ -197,6 +200,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--sporadic")) o.sporadic = 1;
         else if (!strcmp(a, "--learn")) o.learn = 1;
         else if (!strcmp(a, "--learn-from-sim")) o.learn = 2;
+        else if (!strcmp(a, "--plant") && n) { o.plant = n; i++; }
         else if (!strcmp(a, "--no-pilot")) o.no_pilot = 1;
         else if (!strcmp(a, "--fresh")) o.fresh = 1;
         else if (!strcmp(a, "--verbose")) o.verbose = 1;
@@ -205,6 +209,11 @@ int main(int argc, char **argv)
     }
     int serial = !strcmp(o.backend, "serial");
     o.hardware = serial;
+    if (!o.plant) o.plant = "beam";
+    int joint = !strcmp(o.plant, "joint");
+    if (!joint && strcmp(o.plant, "beam")) { fprintf(stderr, "--plant must be beam or joint\n"); return 2; }
+    if (joint && serial) { fprintf(stderr, "--plant joint is simulated only (the real rig is a ball and beam)\n"); return 2; }
+    if (joint && o.learn) { fprintf(stderr, "--plant joint: the online learner is for the beam only; the joint flies its frozen pilot\n"); return 2; }
     {   /* who the untrusted pilot runs as */
         if (o.pilot_user) {
             unsigned u, g;
@@ -232,6 +241,7 @@ int main(int argc, char **argv)
 
     rx_cfg_t cfg; rx_cfg_default(&cfg, o.hz);
     if (serial) rx_cfg_hardware(&cfg);
+    if (joint) rx_cfg_joint(&cfg, o.hz);
 
     /* rig calibration: the serial backend refuses to run on guessed values */
     rx_conf_t conf; rx_conf_default(&conf);
@@ -266,6 +276,7 @@ int main(int argc, char **argv)
     }
     shm->hz = cfg.hz; shm->half_len = cfg.half_len; shm->theta_max = cfg.theta_max;
     snprintf(shm->backend, sizeof shm->backend, "%s", o.backend);
+    snprintf(shm->plant, sizeof shm->plant, "%s", rx_plant_ops(cfg.plant)->name);
     snprintf(shm->calibrated_at, sizeof shm->calibrated_at, "%s", serial ? (o.uncalibrated ? "uncalibrated" : conf.calibrated_at) : "-");
     atomic_store(&shm->node_link, 0); atomic_store(&shm->node_proto, 0);
     atomic_store(&shm->guardian_pid, getpid());
@@ -316,6 +327,8 @@ int main(int argc, char **argv)
     uint32_t sup_div = (uint32_t)(cfg.hz / 100.0f); if (sup_div < 1) sup_div = 1;   /* supervise at ~100 Hz */
     uint64_t t_ideal = rx_server_start_ns(srv) + period, last_print = 0;            /* expiry k is due at start + k*period */
     uint64_t sp_phase_ns = 0; int sp_sign = 1;
+    const rx_plant_ops_t *P = rx_plant_ops(cfg.plant);
+    const float sp_amp = cfg.plant == RX_PLANT_JOINT ? 0.6f : 0.08f;   /* automatic square wave: +-80 mm / +-0.6 rad */
     uint8_t prev_mode = 255;
     rx_event_push(shm, 0, RX_E_GUARDIAN_START, (int32_t)atomic_load(&shm->guardian_starts));
 
@@ -349,7 +362,8 @@ int main(int argc, char **argv)
         /* setpoint: automatic square wave, or whatever the operator asked for */
         uint64_t half = (uint64_t)atomic_load(&shm->sp_period_ms) * 1000000ull;
         if (t0 - sp_phase_ns >= half) { sp_phase_ns = t0; sp_sign = -sp_sign; }
-        float sp_m = atomic_load(&shm->sp_auto) ? 0.08f * sp_sign : atomic_load(&shm->sp_manual_mm) * 1e-3f;
+        /* manual setpoints are in thousandths of the plant unit (mm on the beam, mrad on the joint) */
+        float sp_m = atomic_load(&shm->sp_auto) ? sp_amp * sp_sign : atomic_load(&shm->sp_manual_mm) * 1e-3f;
 
         /* force_fallback (operator, rxctl bench): treat the pilot as absent. Only ever more conservative. */
         int present = atomic_load(&shm->pilot_present) && !atomic_load(&shm->force_fallback);
@@ -359,7 +373,7 @@ int main(int argc, char **argv)
         g.quarantined = (uint8_t)atomic_load(&shm->quarantined);
         rx_guard_out_t out;
         rx_guard_step(&g, &cfg, est.x, est.v, sp_m, &in, &out);
-        if (!ok_now) out.u_out = 0.0f;                               /* no ball in sight: level the beam */
+        if (!ok_now) out.u_out = P->u_eq(&cfg, est.x);               /* nothing measured: hold (beam: level) */
 
         io->write(io, out.u_out);
 

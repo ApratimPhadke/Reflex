@@ -195,14 +195,17 @@ static const fault_t FAULTS[] = {
 
 static void campaign(FILE *out)
 {
+    const int joint = !strcmp(shm->plant, "joint");
     const int run_ms = 4000;
     fprintf(out, "# Reflex fault campaign\n\n");
     fprintf(out, "- backend: `%s`, control rate %.0f Hz\n- each fault is injected into a healthy system and left active for %d s\n"
                  "- *without Reflex* = the same pilot, same faults, guardian in bypass (pilot commands go straight to the actuator)\n\n",
             shm->backend, shm->hz, run_ms / 1000);
     if (strcmp(shm->backend, "sim"))
-        fprintf(out, "- *closest to beam end* is the guardian's **estimate** (no ground truth on this backend; it includes sensor noise)\n\n");
-    fprintf(out, "| # | Injected pilot fault | Guardian took over after | Closest to beam end | Ball (with Reflex) | Pilot restarts | Ball (without Reflex) |\n");
+        fprintf(out, "- *closest to the end* is the guardian's **estimate** (no ground truth on this backend; it includes sensor noise)\n\n");
+    if (joint) fprintf(out, "- plant: **robot joint** (simulated); \"limit hit\" = the joint reached its hard stop\n\n");
+    fprintf(out, "| # | Injected pilot fault | Guardian took over after | %s | %s (with Reflex) | Pilot restarts | %s (without Reflex) |\n",
+            joint ? "Closest to the stop" : "Closest to beam end", joint ? "Joint" : "Ball", joint ? "Joint" : "Ball");
     fprintf(out, "|---|---|---|---|---|---|---|\n");
 
     int kept = 0, lost_without = 0, skipped = 0;
@@ -257,7 +260,9 @@ static void campaign(FILE *out)
             skipped++;
             continue;
         }
-        fprintf(out, "| %u | %s | %s | %.1f cm | %s | %u | %s |\n", fi + 1, F->what, det, min_edge * 100,
+        if (joint) fprintf(out, "| %u | %s | %s | %.1f deg | %s | %u | %s |\n", fi + 1, F->what, det, min_edge * 57.29578,
+                           lost_g ? "**LIMIT HIT**" : "kept", restarts, lost_b ? "**LIMIT HIT**" : "kept");
+        else fprintf(out, "| %u | %s | %s | %.1f cm | %s | %u | %s |\n", fi + 1, F->what, det, min_edge * 100,
                 lost_g ? "**LOST**" : "kept", restarts, lost_b ? "**LOST**" : "kept");
         fflush(out);
         if (!lost_g) kept++;
@@ -266,8 +271,8 @@ static void campaign(FILE *out)
     }
     rx_command(shm, "release");
     unsigned ran = (unsigned)NFAULTS - (unsigned)skipped;
-    fprintf(out, "\n**With Reflex: ball kept in %d of %u fault scenarios. Without Reflex: ball lost in %d of %u.**\n\n",
-            kept, ran, lost_without, ran);
+    fprintf(out, "\n**With Reflex: %s in %d of %u fault scenarios. Without Reflex: %s in %d of %u.**\n\n",
+            joint ? "joint kept off its stops" : "ball kept", kept, ran, joint ? "limit hit" : "ball lost", lost_without, ran);
     if (skipped) fprintf(out, "**%d fault(s) could not be injected and are not counted above.**\n\n", skipped);
     fprintf(out, "```\n"); cmd_latency(out); fprintf(out, "```\n");
     fprintf(out, "\nGuardian worst-case execution time per tick: %.1f us. Spoofed proposals refused: %u.\n",
@@ -365,8 +370,10 @@ static int cmd_script(const char *path, int check_only)
  *   overshoot      furthest the position went past the new setpoint, in the direction of the step
  *   RMS error      over every tick of the sequence
  *   interventions  guardian take-overs during the sequence */
-static const int BENCH_SP_MM[] = { 80, -80, 40, -40, 0 };
-#define BENCH_N ((int)(sizeof BENCH_SP_MM / sizeof BENCH_SP_MM[0]))
+/* setpoints in thousandths of the plant unit: mm on the beam, mrad on the joint */
+static const int BENCH_SP_BEAM[] = { 80, -80, 40, -40, 0 }, BENCH_SP_JOINT[] = { 600, -600, 300, -300, 0 };
+static const int *BENCH_SP_MM = BENCH_SP_BEAM;
+#define BENCH_N 5
 typedef struct { double settle_s[BENCH_N], over_mm[BENCH_N]; int settled[BENCH_N]; double rms_mm; unsigned interventions; long n; } bench_res_t;
 
 static uint64_t iv_total(void) { uint64_t t = 0; for (int i = 1; i < RX_R_COUNT; i++) t += atomic_load(&shm->interventions[i]); return t; }
@@ -424,6 +431,9 @@ static void bench_summary(const bench_res_t *R, double *settle, double *over, un
 
 static int cmd_bench(FILE *out, const char *csv_path, double hold_s)
 {
+    const int joint = !strcmp(shm->plant, "joint");
+    const char *U = joint ? "mrad" : "mm";
+    if (joint) BENCH_SP_MM = BENCH_SP_JOINT;
     FILE *csv = csv_path ? fopen(csv_path, "w") : NULL;
     if (csv_path && !csv) { perror(csv_path); return 1; }
     if (csv) fprintf(csv, "pilot,step,t_s,sp_mm,x_mm,mode\n");
@@ -444,20 +454,20 @@ static int cmd_bench(FILE *out, const char *csv_path, double hold_s)
     fprintf(out, "# Reflex benchmark: AI pilot vs fallback controller alone\n\n");
     fprintf(out, "- backend: `%s`, control rate %.0f Hz; position: %s\n", shm->backend, shm->hz,
             strcmp(shm->backend, "sim") ? "the guardian's estimate (no ground truth on this backend)" : "simulator ground truth");
-    fprintf(out, "- setpoint sequence (mm), each held %.0f s:", hold_s);
+    fprintf(out, "- plant: %s; setpoint sequence (%s), each held %.0f s:", joint ? "robot joint (simulated)" : "ball and beam", U, hold_s);
     for (int i = 0; i < BENCH_N; i++) fprintf(out, " %d", BENCH_SP_MM[i]);
-    fprintf(out, "\n- settling: last time outside a band of 10 %% of the step (at least 5 mm); a step still outside it in the last 0.5 s counts as not settled\n\n");
+    fprintf(out, "\n- settling: last time outside a band of 10 %% of the step (at least 5 %s); a step still outside it in the last 0.5 s counts as not settled\n\n", U);
     fprintf(out, "| | AI pilot (guardian on) | fallback controller alone |\n|---|---|---|\n");
     fprintf(out, "| mean settling time | %.2f s | %.2f s |\n", st[0], st[1]);
-    fprintf(out, "| worst overshoot | %.1f mm | %.1f mm |\n", ov[0], ov[1]);
-    fprintf(out, "| RMS tracking error | %.1f mm | %.1f mm |\n", R[0].rms_mm, R[1].rms_mm);
+    fprintf(out, "| worst overshoot | %.1f %s | %.1f %s |\n", ov[0], U, ov[1], U);
+    fprintf(out, "| RMS tracking error | %.1f %s | %.1f %s |\n", R[0].rms_mm, U, R[1].rms_mm, U);
     fprintf(out, "| guardian interventions | %u | %u |\n", R[0].interventions, R[1].interventions);
     fprintf(out, "| steps not settled | %u of %d | %u of %d |\n\n", un[0], BENCH_N, un[1], BENCH_N);
     fprintf(out, "| step | setpoint | AI settling | AI overshoot | fallback settling | fallback overshoot |\n|---|---|---|---|---|---|\n");
     for (int i = 0; i < BENCH_N; i++)
-        fprintf(out, "| %d | %+d mm | %s%.2f s | %.1f mm | %s%.2f s | %.1f mm |\n", i + 1, BENCH_SP_MM[i],
-                R[0].settled[i] ? "" : "not settled, ", R[0].settle_s[i], R[0].over_mm[i],
-                R[1].settled[i] ? "" : "not settled, ", R[1].settle_s[i], R[1].over_mm[i]);
+        fprintf(out, "| %d | %+d %s | %s%.2f s | %.1f %s | %s%.2f s | %.1f %s |\n", i + 1, BENCH_SP_MM[i], U,
+                R[0].settled[i] ? "" : "not settled, ", R[0].settle_s[i], R[0].over_mm[i], U,
+                R[1].settled[i] ? "" : "not settled, ", R[1].settle_s[i], R[1].over_mm[i], U);
     double fs = (st[1] - st[0]) / st[1] * 100, fr = (R[1].rms_mm - R[0].rms_mm) / R[1].rms_mm * 100;
     fprintf(out, "\nAI vs fallback: settling %s by %.0f %%, RMS error %s by %.0f %%, %u interventions while the AI flew.\n",
             fs >= 0 ? "faster" : "SLOWER", fabs(fs), fr >= 0 ? "lower" : "HIGHER", fabs(fr), R[0].interventions);

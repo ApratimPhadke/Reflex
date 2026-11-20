@@ -32,6 +32,33 @@ void rx_cfg_hardware(rx_cfg_t *c)
     c->est_tau = 0.08f;              /* a time-of-flight sensor is several mm noisy */
 }
 
+/* One revolute joint lifting a link against gravity, driven by a torque-limited motor, between hard angle
+ * stops: a stand-in for an exoskeleton knee or a surgical-arm joint. Simulation only.
+ *   x'' = (tau - mgl sin x - b x') / I,   |tau| <= theta_max,   |x| <= half_len
+ * Sized so the worst-case push-then-brake travel (about 0.14 rad) leaves the setpoint range recoverable. */
+void rx_cfg_joint(rx_cfg_t *c, float hz)
+{
+    memset(c, 0, sizeof *c);
+    c->plant = RX_PLANT_JOINT;
+    c->hz = hz;              c->dt = 1.0f / hz;
+    c->inertia = 0.20f;      /* kg m^2: e.g. 0.5 kg link with its centre of mass 0.3 m out, plus the rotor */
+    c->mgl = 1.5f;           /* N m: gravity torque with the link horizontal */
+    c->damping = 0.05f;      /* N m s/rad */
+    c->theta_max = 4.0f;     /* N m: motor torque limit (must exceed mgl to hold the link anywhere) */
+    c->slew = 200.0f;        /* N m/s: current-loop torque rise; a full reversal takes 2*4/200 = 40 ms */
+    c->half_len = 1.2f;      /* rad: hard stops at +-69 deg */
+    c->edge_margin = 0.05f;  /* rad: keep-out strip before each stop (~3 deg) */
+    c->t_delay = 0.05f;      /* s: torque reversal (40 ms) + one estimator lag */
+    c->brake_eta = 0.7f;
+    c->wn = 5.0f;            c->zeta = 1.0f;
+    c->est_tau = 0.01f;      /* an encoder is far less noisy than a time-of-flight sensor */
+    c->max_age_s = 0.005f;
+    c->hold_s = 0.5f;
+    c->inner_margin = 0.1f;  /* rad */
+    c->sp_limit = 0.8f;      /* rad */
+    c->strike_limit = 3;     c->strike_window_s = 10.0f;
+}
+
 void rx_est_update(rx_est_t *e, const rx_cfg_t *c, float z)
 {
     if (!e->init) { e->x = z; e->v = 0; e->init = 1; return; }
@@ -48,10 +75,11 @@ void rx_est_predict(rx_est_t *e, const rx_cfg_t *c)
     if (e->init) e->x += e->v * c->dt;
 }
 
-/* Margin toward ONE end of the beam (s = +1 right, -1 left).
+/* ================================================================== ball and beam
+ * Margin toward ONE end of the beam (s = +1 right, -1 left).
  * Worst case assumed: for t_delay the actuator pushes the ball toward that end at full authority,
  * after that braking achieves only brake_eta of the ideal deceleration. */
-static float margin_side(const rx_cfg_t *c, float x, float v, float s)
+static float beam_margin_side(const rx_cfg_t *c, float x, float v, float s)
 {
     float a_max = c->k_acc * sinf(c->theta_max);
     float a_brk = c->brake_eta * a_max;
@@ -63,21 +91,104 @@ static float margin_side(const rx_cfg_t *c, float x, float v, float s)
     return (c->half_len - c->edge_margin) - reach;
 }
 
-float rx_margin(const rx_cfg_t *c, float x, float v)
+static float beam_safe_u(const rx_cfg_t *c, float x, float v, float sp)
 {
-    float r = margin_side(c, x, v, 1.0f), l = margin_side(c, x, v, -1.0f);
-    return r < l ? r : l;
-}
-
-float rx_safe_u(const rx_cfg_t *c, float x, float v, float sp)
-{
-    float r = margin_side(c, x, v, 1.0f), l = margin_side(c, x, v, -1.0f);
+    float r = beam_margin_side(c, x, v, 1.0f), l = beam_margin_side(c, x, v, -1.0f);
     if (r < 0.01f || l < 0.01f)                             /* close to a limit: push away from it, full authority */
         return (r < l) ? -c->theta_max : c->theta_max;
     float a = c->wn * c->wn * (sp - x) - 2.0f * c->zeta * c->wn * v;
     float sm = sinf(c->theta_max);
     return asinf(clampf(a / c->k_acc, -sm, sm));
 }
+
+/* the guardian's one-step lookahead model: ball acceleration for a commanded beam angle */
+static float beam_accel(const rx_cfg_t *c, float x, float v, float u) { (void)x; (void)v; return c->k_acc * sinf(u); }
+static float beam_u_eq(const rx_cfg_t *c, float x) { (void)c; (void)x; return 0.0f; }   /* a level beam holds the ball */
+
+static void beam_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt)
+{
+    int n = (int)ceil(dt / 0.0005);
+    if (n < 1) n = 1;
+    if (n > 20000) n = 20000;
+    double h = dt / n;
+    double u = isfinite(u_cmd) ? u_cmd : p->theta;   /* a servo fed garbage holds position */
+    if (u > c->theta_max) u = c->theta_max;
+    if (u < -c->theta_max) u = -c->theta_max;
+    for (int i = 0; i < n; i++) {
+        double d = u - p->theta, lim = c->slew * h;
+        p->theta += d > lim ? lim : (d < -lim ? -lim : d);
+        double a = c->k_acc * sin(p->theta) - 0.15 * p->v;   /* small rolling loss */
+        p->v += a * h;
+        p->x += p->v * h;
+    }
+}
+
+/* ================================================================== robot joint
+ * Same worst case as the beam, with the joint's own accelerations: for t_delay the motor pushes toward the
+ * stop at full torque with gravity helping as much as it ever can (|sin x| <= 1), then brakes at full torque
+ * against gravity at its worst, and we rely on only brake_eta of that. Viscous friction is ignored, which
+ * only makes the bound more conservative (it always opposes motion). */
+static float joint_margin_side(const rx_cfg_t *c, float x, float v, float s)
+{
+    float a_max = (c->theta_max + c->mgl) / c->inertia;
+    float a_brk = c->brake_eta * (c->theta_max - c->mgl) / c->inertia;
+    float xs = s * x, vs = s * v;
+    float xd = xs + vs * c->t_delay + 0.5f * a_max * c->t_delay * c->t_delay;
+    float vd = vs + a_max * c->t_delay;
+    float reach = xd > xs ? xd : xs;
+    if (vd > 0) { float stop = xd + vd * vd / (2.0f * a_brk); if (stop > reach) reach = stop; }
+    return (c->half_len - c->edge_margin) - reach;
+}
+
+static float joint_safe_u(const rx_cfg_t *c, float x, float v, float sp)
+{
+    float r = joint_margin_side(c, x, v, 1.0f), l = joint_margin_side(c, x, v, -1.0f);
+    if (r < 0.02f || l < 0.02f)                             /* close to a stop: full torque away from it */
+        return (r < l) ? -c->theta_max : c->theta_max;
+    /* PD on the angle with gravity compensation, saturated at the torque limit */
+    float tau = c->inertia * (c->wn * c->wn * (sp - x) - 2.0f * c->zeta * c->wn * v) + c->mgl * sinf(x);
+    return clampf(tau, -c->theta_max, c->theta_max);
+}
+
+static float joint_accel(const rx_cfg_t *c, float x, float v, float u) { return (u - c->mgl * sinf(x) - c->damping * v) / c->inertia; }
+static float joint_u_eq(const rx_cfg_t *c, float x) { return c->mgl * sinf(x); }   /* torque that holds the link at x */
+
+static void joint_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt)
+{
+    int n = (int)ceil(dt / 0.0005);
+    if (n < 1) n = 1;
+    if (n > 20000) n = 20000;
+    double h = dt / n;
+    double u = isfinite(u_cmd) ? u_cmd : p->theta;   /* a drive fed garbage holds its torque */
+    if (u > c->theta_max) u = c->theta_max;
+    if (u < -c->theta_max) u = -c->theta_max;
+    for (int i = 0; i < n; i++) {
+        double d = u - p->theta, lim = c->slew * h;  /* p->theta = applied torque, rising at the slew rate */
+        p->theta += d > lim ? lim : (d < -lim ? -lim : d);
+        double a = (p->theta - c->mgl * sin(p->x) - c->damping * p->v) / c->inertia;
+        p->v += a * h;
+        p->x += p->v * h;
+    }
+}
+
+/* ================================================================== the plant interface */
+static const rx_plant_ops_t PLANTS[2] = {
+    { "beam",  "mm",  1000.0f,     beam_accel,  beam_margin_side,  beam_safe_u,  beam_step,  beam_u_eq },
+    { "joint", "deg", 57.2957795f, joint_accel, joint_margin_side, joint_safe_u, joint_step, joint_u_eq },
+};
+
+const rx_plant_ops_t *rx_plant_ops(int plant) { return &PLANTS[plant == RX_PLANT_JOINT ? 1 : 0]; }
+
+float rx_margin(const rx_cfg_t *c, float x, float v)
+{
+    const rx_plant_ops_t *P = rx_plant_ops(c->plant);
+    float r = P->margin_side(c, x, v, 1.0f), l = P->margin_side(c, x, v, -1.0f);
+    return r < l ? r : l;
+}
+
+float rx_safe_u(const rx_cfg_t *c, float x, float v, float sp) { return rx_plant_ops(c->plant)->safe_u(c, x, v, sp); }
+
+void rx_plant_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt) { rx_plant_ops(c->plant)->step(p, c, u_cmd, dt); }
 
 void rx_guard_init(rx_guard_t *g)
 {
@@ -117,7 +228,7 @@ void rx_guard_step(rx_guard_t *g, const rx_cfg_t *c, float x, float v, float sp,
     else {
         /* one-step lookahead: where would this command put us, and could we still stop from there? */
         float h = c->dt > 0.02f ? c->dt : 0.02f;
-        float a = c->k_acc * sinf(in->u_ai);
+        float a = rx_plant_ops(c->plant)->accel(c, x, v, in->u_ai);
         float v1 = v + a * h;
         float x1 = x + v * h + 0.5f * a * h * h;
         if (rx_margin(c, x1, v1) <= 0.0f)            verdict = RX_R_ENVELOPE;
@@ -149,38 +260,24 @@ void rx_guard_step(rx_guard_t *g, const rx_cfg_t *c, float x, float v, float sp,
     g->u_last = out->u_out;
 }
 
-void rx_plant_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt)
-{
-    int n = (int)ceil(dt / 0.0005);
-    if (n < 1) n = 1;
-    if (n > 20000) n = 20000;
-    double h = dt / n;
-    double u = isfinite(u_cmd) ? u_cmd : p->theta;   /* a servo fed garbage holds position */
-    if (u > c->theta_max) u = c->theta_max;
-    if (u < -c->theta_max) u = -c->theta_max;
-    for (int i = 0; i < n; i++) {
-        double d = u - p->theta, lim = c->slew * h;
-        p->theta += d > lim ? lim : (d < -lim ? -lim : d);
-        double a = c->k_acc * sin(p->theta) - 0.15 * p->v;   /* small rolling loss */
-        p->v += a * h;
-        p->x += p->v * h;
-    }
-}
-
 #include "policy_weights.h"
 #include "policy_weights_hw.h"
+#include "policy_weights_joint.h"
 
 _Static_assert(RX_POL_IN == RX_NET_IN && RX_POL_H == RX_NET_H, "policy_weights.h does not match RX_NET_*");
 _Static_assert(RX_POLHW_IN == RX_NET_IN && RX_POLHW_H == RX_NET_H, "policy_weights_hw.h does not match RX_NET_*");
+_Static_assert(RX_POLJT_IN == RX_NET_IN && RX_POLJT_H == RX_NET_H, "policy_weights_joint.h does not match RX_NET_*");
 
-static const rx_net_t NETS[2] = {
-    { rx_pol_w1,   rx_pol_b1,   rx_pol_w2,   RX_POL_B2 },
-    { rx_polhw_w1, rx_polhw_b1, rx_polhw_w2, RX_POLHW_B2 },
+/* input scales: beam (sp - x) / 0.1 m, v / 0.3 m/s, x / 0.2 m; joint 0.3 rad, 3 rad/s, 1 rad */
+static const rx_net_t NETS[3] = {
+    { rx_pol_w1,   rx_pol_b1,   rx_pol_w2,   RX_POL_B2,   0.1f, 0.3f, 0.2f },
+    { rx_polhw_w1, rx_polhw_b1, rx_polhw_w2, RX_POLHW_B2, 0.1f, 0.3f, 0.2f },
+    { rx_poljt_w1, rx_poljt_b1, rx_poljt_w2, RX_POLJT_B2, 0.3f, 3.0f, 1.0f },
 };
 
 const rx_net_t *rx_policy_net(int which)
 {
-    return &NETS[which == RX_NET_HW ? RX_NET_HW : RX_NET_SIM];
+    return &NETS[(which == RX_NET_HW || which == RX_NET_JOINT) ? which : RX_NET_SIM];
 }
 
 static float net_raw(const rx_net_t *n, float e, float vn, float xn)
@@ -195,13 +292,15 @@ static float net_raw(const rx_net_t *n, float e, float vn, float xn)
     return o;
 }
 
-/* Equilibrium-corrected: u = net(e, v, x) - net(0, 0, x). With the ball at rest on the setpoint the command
- * is exactly zero (a level beam), whatever the weights, so the pilot cannot learn a steady-state bias.
- * rxctl bench found one before this (results/2026-11-20-host-bench/): the frozen pilots stopped 13-23 % short. */
+/* Equilibrium-corrected: u = u_eq(x) + theta_max * tanh(net(e, v, x) - net(0, 0, x)). At rest on the setpoint
+ * the command is exactly the holding command (a level beam; the gravity torque of the joint), whatever the
+ * weights, so the pilot cannot learn a steady-state bias. rxctl bench found one before this
+ * (results/2026-11-20-host-bench/): the frozen beam pilots stopped 13-23 % short. */
 float rx_policy_with(const rx_cfg_t *c, const rx_net_t *n, float x, float v, float sp)
 {
-    float o = net_raw(n, (sp - x) / 0.1f, v / 0.3f, x / 0.2f) - net_raw(n, 0.0f, 0.0f, x / 0.2f);
-    return c->theta_max * tanhf(o);
+    float o = net_raw(n, (sp - x) / n->s_e, v / n->s_v, x / n->s_x) - net_raw(n, 0.0f, 0.0f, x / n->s_x);
+    float u = rx_plant_ops(c->plant)->u_eq(c, x) + c->theta_max * tanhf(o);
+    return clampf(u, -c->theta_max, c->theta_max);
 }
 
 float rx_policy(const rx_cfg_t *c, float x, float v, float sp)

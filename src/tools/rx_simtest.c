@@ -22,9 +22,11 @@ typedef struct { int lost; int interventions; double rms_err, min_margin, first_
 static result_t run_cfg(float hz, int fault, int guard, double secs, int hw, int net_id)
 {
     rx_cfg_t c; rx_cfg_default(&c, hz);
-    if (hw) rx_cfg_hardware(&c);
+    if (hw == 1) rx_cfg_hardware(&c);
+    if (hw == 2) rx_cfg_joint(&c, hz);                     /* the robot joint: angles in rad, torque in N m */
     const rx_net_t *net = rx_policy_net(net_id);
-    rx_plant_t p = { 0.03, 0, 0 };
+    rx_plant_t p = { hw == 2 ? 0.05 : 0.03, 0, 0 };
+    const float sp_amp = hw == 2 ? 0.6f : 0.08f;
     rx_est_t e = { 0 };
     rx_guard_t g; rx_guard_init(&g);
     result_t r = { 0, 0, 0, 1e9, -1, 0 };
@@ -33,8 +35,8 @@ static result_t run_cfg(float hz, int fault, int guard, double secs, int hw, int
     double se = 0; int sn = 0;
     int slow_ctr = 0;
     for (int k = 0; k < n; k++) {
-        float sp = ((k / (int)(4 * hz)) % 2) ? -0.08f : 0.08f;
-        float z = (float)(p.x + (hw ? 0.003 * (2 * urand() - 1) : 0.0015 * nrand()));
+        float sp = ((k / (int)(4 * hz)) % 2) ? -sp_amp : sp_amp;
+        float z = (float)(p.x + (hw == 1 ? 0.003 * (2 * urand() - 1) : 0.0015 * nrand()));
         rx_est_update(&e, &c, z);
         int f = (k >= fault_at) ? fault : RX_F_NONE;
 
@@ -79,6 +81,32 @@ static int envelope_mc(float hz, double k_scale, double slew_scale, long samples
     long viol = 0, n = 0;
     for (long i = 0; i < samples; i++) {
         rx_plant_t p = { (urand() * 2 - 1) * c.half_len, (urand() * 2 - 1) * 0.6, (urand() * 2 - 1) * c.theta_max };
+        if (rx_margin(&c, (float)p.x, (float)p.v) <= 0) continue;
+        n++;
+        float s = p.v > 0 ? 1.0f : (p.v < 0 ? -1.0f : (p.x >= 0 ? 1.0f : -1.0f));
+        float sp = (float)((urand() * 2 - 1) * c.sp_limit);
+        rx_plant_step(&p, &world, s * c.theta_max, c.dt);                    /* the adversary's last tick */
+        int bad = 0;
+        for (int k = 0; k < (int)(3 * hz) && !bad; k++) {
+            rx_plant_step(&p, &world, rx_safe_u(&c, (float)p.x, (float)p.v, sp), c.dt);
+            if (fabs(p.x) > c.half_len - c.edge_margin) bad = 1;
+        }
+        viol += bad;
+    }
+    *tested = n;
+    return (int)viol;
+}
+
+/* The same Monte Carlo check for the robot joint: random states the kernel calls recoverable, one more tick
+ * of full torque in the worst direction, then the fallback only, on a joint whose inertia, gravity load and
+ * torque slew differ from the model. Must never enter the keep-out strip before either stop. */
+static int envelope_mc_joint(float hz, double i_scale, double g_scale, double slew_scale, long samples, long *tested)
+{
+    rx_cfg_t c; rx_cfg_joint(&c, hz);
+    rx_cfg_t world = c; world.inertia *= (float)i_scale; world.mgl *= (float)g_scale; world.slew *= (float)slew_scale;
+    long viol = 0, n = 0;
+    for (long i = 0; i < samples; i++) {
+        rx_plant_t p = { (urand() * 2 - 1) * c.half_len, (urand() * 2 - 1) * 4.0, (urand() * 2 - 1) * c.theta_max };
         if (rx_margin(&c, (float)p.x, (float)p.v) <= 0) continue;
         n++;
         float s = p.v > 0 ? 1.0f : (p.v < 0 ? -1.0f : (p.x >= 0 ? 1.0f : -1.0f));
@@ -190,6 +218,40 @@ int main(void)
         if (hwp.lost || hwp.restarts > 0 || hwp.interventions > 1) {
             printf("FAIL: guardian has to overrule the healthy hardware pilot\n"); fail = 1;
         }
+    }
+
+    /* The guardian is plant-independent: the same kernel, a different plant table (rx_plant_ops). */
+    printf("\n== second plant: robot joint with gravity load (rx_cfg_joint), frozen joint pilot ==\n");
+    for (unsigned ri = 0; ri < 2; ri++) {
+        float hz = ri ? 250.0f : 1000.0f;
+        rx_cfg_t jc; rx_cfg_joint(&jc, hz);
+        printf("-- %.0f Hz: angle limit %.2f rad, keep-out %.2f rad, torque limit %.1f N m --\n", hz, jc.half_len, jc.edge_margin, jc.theta_max);
+        printf("%-12s | %-30s | %-22s\n", "pilot fault", "WITH guardian", "WITHOUT guardian");
+        printf("%-12s | %-6s %-7s %-8s %-6s | %-6s\n", "", "joint", "detect", "to stop", "interv", "joint");
+        for (int f = 0; f <= RX_F_COUNT; f++) {
+            result_t a = run_cfg(hz, f, 1, 20.0, 2, RX_NET_JOINT), b = run_cfg(hz, f, 0, 20.0, 2, RX_NET_JOINT);
+            char det[24] = "-", mar[24] = "-";
+            if (a.first_detect_ms >= 0) snprintf(det, sizeof det, "%.0fms", a.first_detect_ms);
+            if (f) snprintf(mar, sizeof mar, "%.1fdeg", a.min_margin * 57.29578);
+            printf("%-12s | %-6s %-7s %-8s %-6d | %-6s\n", names[f], a.lost ? "HIT" : "kept", det, mar,
+                   a.interventions, b.lost ? "HIT" : "kept");
+            if (a.lost || (f && a.min_margin < jc.edge_margin)) fail = 1;   /* never into the keep-out strip */
+            if (f == 0) {
+                printf("%-12s   nominal tracking RMS error %.1f deg, interventions %d, strike-outs %d\n", "",
+                       a.rms_err * 57.29578, a.interventions, a.restarts);
+                if (a.restarts > 0) { printf("FAIL: the healthy joint pilot struck out\n"); fail = 1; }
+            }
+        }
+    }
+    printf("\n== robot joint: recoverable-set Monte Carlo (adversary gets one more tick, then fallback only) ==\n");
+    struct { double i, g, slew; const char *what; int must_pass; } jm[] = {
+        { 1.00, 1.00, 1.00, "nominal joint", 1 }, { 0.85, 1.00, 1.00, "inertia 15% lower than modelled", 1 },
+        { 1.15, 1.00, 1.00, "inertia 15% higher", 1 }, { 1.00, 1.15, 1.00, "gravity load 15% higher", 1 },
+        { 1.00, 1.00, 0.80, "torque rise 20% slower", 1 }, { 0.85, 1.15, 0.80, "all three at once", 0 } };
+    for (unsigned i = 0; i < sizeof jm / sizeof jm[0]; i++) {
+        long n; int v = envelope_mc_joint(1000.0f, jm[i].i, jm[i].g, jm[i].slew, 200000, &n);
+        printf("  %-34s %ld recoverable states tested, %d violations%s\n", jm[i].what, n, v, jm[i].must_pass ? "" : "  (informational)");
+        if (v && jm[i].must_pass) fail = 1;
     }
 
     printf("\n%s\n", fail ? "SIMTEST FAILED" : "SIMTEST PASSED");

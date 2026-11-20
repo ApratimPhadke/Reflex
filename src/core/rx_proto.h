@@ -166,6 +166,7 @@ typedef struct {
         float settle_s[2], overshoot_mm[2], rms_mm[2];   /* [0] = AI, [1] = fallback only */
         uint32_t interventions[2], unsettled[2];
     } bench;
+    char  plant[16];                        /* "beam" or "joint" (written once at start) */
 } rx_shm_t;
 
 #endif
