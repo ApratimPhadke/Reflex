@@ -1,0 +1,5 @@
+stuck (campaign phase) run 1: true min edge 16.7 mm, balls lost 0
+stuck (campaign phase) run 2: true min edge 11.5 mm, balls lost 0
+stuck (campaign phase) run 3: true min edge 13.3 mm, balls lost 0
+stuck (campaign phase) run 4: true min edge 15.7 mm, balls lost 0
+stuck (campaign phase) run 5: true min edge 17.1 mm, balls lost 0

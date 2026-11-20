@@ -168,15 +168,34 @@ void rx_plant_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt)
 }
 
 #include "policy_weights.h"
+#include "policy_weights_hw.h"
+
+_Static_assert(RX_POL_IN == RX_NET_IN && RX_POL_H == RX_NET_H, "policy_weights.h does not match RX_NET_*");
+_Static_assert(RX_POLHW_IN == RX_NET_IN && RX_POLHW_H == RX_NET_H, "policy_weights_hw.h does not match RX_NET_*");
+
+static const rx_net_t NETS[2] = {
+    { rx_pol_w1,   rx_pol_b1,   rx_pol_w2,   RX_POL_B2 },
+    { rx_polhw_w1, rx_polhw_b1, rx_polhw_w2, RX_POLHW_B2 },
+};
+
+const rx_net_t *rx_policy_net(int which)
+{
+    return &NETS[which == RX_NET_HW ? RX_NET_HW : RX_NET_SIM];
+}
+
+float rx_policy_with(const rx_cfg_t *c, const rx_net_t *n, float x, float v, float sp)
+{
+    float in[RX_NET_IN] = { (sp - x) / 0.1f, v / 0.3f, x / 0.2f };
+    float o = n->b2;
+    for (int j = 0; j < RX_NET_H; j++) {
+        float s = n->b1[j];
+        for (int i = 0; i < RX_NET_IN; i++) s += n->w1[j][i] * in[i];
+        o += n->w2[j] * tanhf(s);
+    }
+    return c->theta_max * tanhf(o);
+}
 
 float rx_policy(const rx_cfg_t *c, float x, float v, float sp)
 {
-    float in[RX_POL_IN] = { (sp - x) / 0.1f, v / 0.3f, x / 0.2f };
-    float o = RX_POL_B2;
-    for (int j = 0; j < RX_POL_H; j++) {
-        float s = rx_pol_b1[j];
-        for (int i = 0; i < RX_POL_IN; i++) s += rx_pol_w1[j][i] * in[i];
-        o += rx_pol_w2[j] * tanhf(s);
-    }
-    return c->theta_max * tanhf(o);
+    return rx_policy_with(c, &NETS[RX_NET_SIM], x, v, sp);
 }

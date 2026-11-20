@@ -1,0 +1,21 @@
+  PASS  pilot in control
+| 1 | pilot process killed (SIGKILL) | 16.4 ms | 12.8 cm | kept | 1 | kept |
+| 2 | pilot frozen (SIGSTOP), no CPU use | 75.8 ms | 12.7 cm | kept | 2 | kept |
+| 3 | pilot stuck in an infinite loop, 100% CPU | 76.3 ms | 11.9 cm | kept | 5 | **LOST** |
+| 4 | pilot answers 50 ms late | 95.7 ms | 11.9 cm | kept | 0 | kept |
+| 5 | pilot outputs NaN | 36.9 ms | 12.0 cm | kept | 0 | **LOST** |
+| 6 | pilot outputs 40 rad (limit is 0.21) | 39.1 ms | 11.9 cm | kept | 0 | **LOST** |
+| 7 | pilot output stuck at +max | 399.8 ms | 0.2 cm | kept | 2 | **LOST** |
+| 8 | pilot output sign-inverted (drives the ball off) | 558.2 ms | 1.1 cm | kept | 2 | **LOST** |
+  PASS  ball kept in 8/8 guarded runs
+  PASS  ball-lost inference matches ground truth (13)
+  PASS  191 garbage lines sent and survived
+  PASS  guardian survived
+  PASS  link down logged
+  PASS  link up logged (reconnected)
+  PASS  node watchdog levelled the beam while unplugged
+  PASS  AI back in control after replug
+  PASS  no ball lost across the unplug
+  PASS  guardian survived
+  PASS  no ball lost across the stall
+SERIALTEST PASSED

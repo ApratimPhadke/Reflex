@@ -44,6 +44,7 @@ static void on_stop(int s) { (void)s; g_stop = 1; }
 typedef struct {
     float hz; int prio, pilot_prio; int sporadic, no_pilot, fresh, verbose, learn;
     const char *backend, *dev, *weights; char pilot_path[512];
+    int hardware;                  /* serial backend: tell the pilot it flies the real rig (set from --backend) */
 } opts_t;
 
 static void usage(void)
@@ -124,6 +125,7 @@ static pid_t spawn_pilot(const opts_t *o, rx_server_t *srv, int chid, float hz)
     snprintf(a_hz, sizeof a_hz, "%.3f", hz);
     char *argv[10]; int n = 0;
     argv[n++] = (char *)o->pilot_path; argv[n++] = a_pid; argv[n++] = a_chid; argv[n++] = a_hz;
+    if (o->hardware) argv[n++] = "--hardware";              /* real rig: fly the hardware-trained weights */
     if (o->learn == 1) argv[n++] = "--learn";
     if (o->learn == 2) argv[n++] = "--learn-from-sim";
     if (o->learn) { argv[n++] = "--weights"; argv[n++] = (char *)o->weights; }
@@ -161,7 +163,7 @@ int main(int argc, char **argv)
      * ssh session). Without this, its first diagnostic line raises SIGPIPE and kills it, HAM
      * restarts it, and it dies again: seen on the Pi 4 as ~1700 restarts in a few seconds. */
     signal(SIGPIPE, SIG_IGN);
-    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "" };
+    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0 };
     {   /* default pilot path: next to our own binary */
         char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]);
         snprintf(o.pilot_path, sizeof o.pilot_path, "%s/reflex-pilot", dirname(tmp));
@@ -185,6 +187,7 @@ int main(int argc, char **argv)
         else { usage(); return strcmp(a, "--help") ? 2 : 0; }
     }
     int serial = !strcmp(o.backend, "serial");
+    o.hardware = serial;
     if (o.hz <= 0) o.hz = serial ? 50.0f : 1000.0f;
     if (o.hz < 10 || o.hz > 4000) { fprintf(stderr, "--hz must be 10..4000\n"); return 2; }
 

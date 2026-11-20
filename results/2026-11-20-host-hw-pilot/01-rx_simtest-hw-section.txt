@@ -1,0 +1,13 @@
+== serial backend config: 50 Hz, rx_cfg_hardware(), +/-3 mm sensor, hardware-trained pilot ==
+pilot fault  | WITH guardian                | WITHOUT guardian      
+             | ball   detect  edge   interv | ball  
+nan          | kept   20ms    12.1 cm 1      | LOST  
+flip         | kept   300ms   2.7  cm 11     | LOST  
+stuck        | kept   300ms   2.4  cm 12     | LOST  
+huge         | kept   20ms    12.0 cm 1      | LOST  
+slow         | kept   -       12.7 cm 0      | kept  
+spin(hang)   | kept   0ms     12.1 cm 1      | kept  
+crash        | kept   0ms     12.1 cm 1      | LOST  
+  healthy, 120 s of +/-80 mm steps:  hardware pilot 0 interventions, 0 strike-outs, RMS 18.9 mm   |   simulator pilot (informational) 29 interventions, 9 strike-outs
+
+SIMTEST PASSED

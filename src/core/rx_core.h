@@ -74,7 +74,19 @@ void rx_guard_step(rx_guard_t *g, const rx_cfg_t *c, float x, float v, float sp,
 typedef struct { double x, v, theta; } rx_plant_t;
 void rx_plant_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt);
 
-/* the neural pilot (weights in policy_weights.h) */
-float rx_policy(const rx_cfg_t *c, float x, float v, float sp);
+/* the neural pilot: a 3-12-1 tanh network. Two frozen weight sets are compiled in, both made by
+ * tools/train_policy.py: RX_NET_SIM for the simulator (policy_weights.h) and RX_NET_HW for the
+ * serial backend at 50 Hz with rx_cfg_hardware() (policy_weights_hw.h, --hardware). */
+#define RX_NET_IN 3
+#define RX_NET_H  12
+enum { RX_NET_SIM = 0, RX_NET_HW = 1 };
+typedef struct {
+    const float (*w1)[RX_NET_IN];   /* [RX_NET_H][RX_NET_IN] */
+    const float *b1, *w2;           /* [RX_NET_H] */
+    float b2;
+} rx_net_t;
+const rx_net_t *rx_policy_net(int which);   /* RX_NET_SIM or RX_NET_HW; anything else -> RX_NET_SIM */
+float rx_policy_with(const rx_cfg_t *c, const rx_net_t *n, float x, float v, float sp);
+float rx_policy(const rx_cfg_t *c, float x, float v, float sp);   /* = rx_policy_with(c, RX_NET_SIM, ...) */
 
 #endif

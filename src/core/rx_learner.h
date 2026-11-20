@@ -31,7 +31,8 @@ typedef struct {
     uint64_t rng;
 } rx_learner_t;
 
-void  rx_learner_init(rx_learner_t *L, uint64_t seed, int from_pretrained);
+/* pretrained: start from these frozen weights (rx_policy_net()), or NULL to start untrained */
+void  rx_learner_init(rx_learner_t *L, uint64_t seed, const rx_net_t *pretrained);
 /* called once per control tick with the state the guardian handed out; returns the command */
 float rx_learner_act(rx_learner_t *L, const rx_cfg_t *c, const rx_state_t *st);
 int   rx_learner_save(const rx_learner_t *L, const char *path);

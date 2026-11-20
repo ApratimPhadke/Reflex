@@ -1,8 +1,11 @@
 /* reflex-pilot - the UNTRUSTED AI controller.
  *
- *   reflex-pilot <guardian-pid> <channel-id> <hz> [--learn | --learn-from-sim] [--weights FILE]
+ *   reflex-pilot <guardian-pid> <channel-id> <hz> [--hardware] [--learn | --learn-from-sim] [--weights FILE]
  *
  * Default: a frozen neural network trained in simulation.
+ * --hardware: the plant is the real rig (serial backend). Fly the weights trained for
+ *          rx_cfg_hardware() at 50 Hz instead of the simulator ones, and start --learn-from-sim
+ *          from them. Only a hint for performance: the guardian judges every command the same way.
  * --learn: the network starts untrained and improves itself on the live plant with an
  *          evolution strategy. It WILL issue dangerous commands while it explores; that is
  *          the point. The guardian keeps the plant safe, and tells the pilot each tick
@@ -62,18 +65,21 @@ int main(int argc, char **argv)
     pid_t gpid = (pid_t)atoi(argv[1]);
     int chid = atoi(argv[2]);
     float hz = (float)atof(argv[3]);
-    int learn = 0;
+    int learn = 0, hardware = 0;
     const char *weights = weights_path;
     for (int i = 4; i < argc; i++) {
         if (!strcmp(argv[i], "--learn")) learn = 1;
+        else if (!strcmp(argv[i], "--hardware")) hardware = 1;
         else if (!strcmp(argv[i], "--learn-from-sim")) learn = 2;
         else if (!strcmp(argv[i], "--weights") && i + 1 < argc) weights = argv[++i];
     }
     if (hz < 1) return 2;
     rx_cfg_t cfg; rx_cfg_default(&cfg, hz);
+    if (hardware) rx_cfg_hardware(&cfg);
+    const rx_net_t *net = rx_policy_net(hardware ? RX_NET_HW : RX_NET_SIM);
 
     if (learn) {
-        rx_learner_init(&L, (uint64_t)time(NULL) * 2654435761u + (uint64_t)getpid(), learn == 2);
+        rx_learner_init(&L, (uint64_t)time(NULL) * 2654435761u + (uint64_t)getpid(), learn == 2 ? net : NULL);
         if (rx_learner_load(&L, weights) == 0)
             fprintf(stderr, "[pilot] resumed learning from %s at episode %u\n", weights, L.episode);
     }
@@ -96,7 +102,7 @@ int main(int argc, char **argv)
         /* Send the proposal; we stay blocked here until the guardian's next tick hands us fresh state. */
         if (rx_client_exchange(c, &p, &st) != 0) break;         /* refused, or guardian gone */
 
-        float u = learn ? rx_learner_act(&L, &cfg, &st) : rx_policy(&cfg, st.x, st.v, st.sp);
+        float u = learn ? rx_learner_act(&L, &cfg, &st) : rx_policy_with(&cfg, net, st.x, st.v, st.sp);
 
         switch (st.fault) {
         case RX_F_NAN:   u = NAN; break;

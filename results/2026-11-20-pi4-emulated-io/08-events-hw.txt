@@ -1,0 +1,40 @@
+  141.25s ago  tick 14126     AI back in control
+  129.09s ago  tick 0         BALL LOST [196]
+  129.09s ago  tick 14734     sensor lost
+  127.47s ago  tick 0         BALL LOST [191]
+  127.47s ago  tick 14815     sensor lost
+  125.85s ago  tick 0         BALL LOST [191]
+  125.85s ago  tick 14896     sensor lost
+  123.55s ago  tick 15011     AI back in control
+  113.31s ago  tick 15523     guardian took over (envelope)
+  112.25s ago  tick 15576     AI back in control
+  112.01s ago  tick 15588     guardian took over (envelope)
+  110.97s ago  tick 15640     AI back in control
+  110.73s ago  tick 15652     pilot killed: 3 unsafe commands [2428975]
+  110.73s ago  tick 15652     guardian took over (envelope)
+  110.71s ago  tick 15653     pilot died [2428975]
+  110.49s ago  tick 15664     pilot spawned [2433071]
+  109.69s ago  tick 15704     AI back in control
+   97.09s ago  tick 0         BALL LOST [198]
+   97.09s ago  tick 16334     sensor lost
+   95.49s ago  tick 0         BALL LOST [189]
+   95.49s ago  tick 16414     sensor lost
+   93.89s ago  tick 0         BALL LOST [185]
+   93.89s ago  tick 16494     sensor lost
+   91.63s ago  tick 16607     AI back in control
+   81.07s ago  tick 17135     guardian took over (envelope)
+   80.05s ago  tick 17186     AI back in control
+   79.73s ago  tick 17202     guardian took over (envelope)
+   78.87s ago  tick 17245     AI back in control
+   78.35s ago  tick 17271     pilot killed: 3 unsafe commands [2433071]
+   78.35s ago  tick 17271     guardian took over (envelope)
+   78.33s ago  tick 17272     pilot died [2433071]
+   78.11s ago  tick 17283     pilot spawned [2437167]
+   77.39s ago  tick 17319     AI back in control
+   64.71s ago  tick 0         BALL LOST [-195]
+   64.71s ago  tick 17953     sensor lost
+   63.05s ago  tick 0         BALL LOST [194]
+   63.05s ago  tick 18036     sensor lost
+   61.25s ago  tick 0         BALL LOST [-200]
+   61.25s ago  tick 18126     sensor lost
+   58.87s ago  tick 18245     AI back in control

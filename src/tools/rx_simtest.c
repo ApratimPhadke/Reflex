@@ -17,9 +17,13 @@ static double nrand(void) { return sqrt(-2 * log(urand() + 1e-12)) * cos(6.28318
 /* min_margin = closest the ball got to either end of the beam after the fault started */
 typedef struct { int lost; int interventions; double rms_err, min_margin, first_detect_ms; int restarts; } result_t;
 
-static result_t run(float hz, int fault, int guard, double secs)
+/* hw = 1: the serial backend's view: rx_cfg_hardware(), the hardware-trained network and a sensor with
+ * +/-3 mm uniform noise like the emulator firmware (the trainer uses Gaussian noise: this is held out) */
+static result_t run_cfg(float hz, int fault, int guard, double secs, int hw, int net_id)
 {
     rx_cfg_t c; rx_cfg_default(&c, hz);
+    if (hw) rx_cfg_hardware(&c);
+    const rx_net_t *net = rx_policy_net(net_id);
     rx_plant_t p = { 0.03, 0, 0 };
     rx_est_t e = { 0 };
     rx_guard_t g; rx_guard_init(&g);
@@ -30,7 +34,7 @@ static result_t run(float hz, int fault, int guard, double secs)
     int slow_ctr = 0;
     for (int k = 0; k < n; k++) {
         float sp = ((k / (int)(4 * hz)) % 2) ? -0.08f : 0.08f;
-        float z = (float)(p.x + 0.0015 * nrand());
+        float z = (float)(p.x + (hw ? 0.003 * (2 * urand() - 1) : 0.0015 * nrand()));
         rx_est_update(&e, &c, z);
         int f = (k >= fault_at) ? fault : RX_F_NONE;
 
@@ -47,7 +51,7 @@ static result_t run(float hz, int fault, int guard, double secs)
         if (k < fault_at && k > (int)hz) { se += (p.x - sp) * (p.x - sp); sn++; }
 
         /* the pilot computes the next proposal from this tick's estimate */
-        float u = rx_policy(&c, e.x, e.v, sp);
+        float u = rx_policy_with(&c, net, e.x, e.v, sp);
         switch (f) {
         case RX_F_NAN:   u = NAN; break;
         case RX_F_FLIP:  u = -u; break;
@@ -61,6 +65,8 @@ static result_t run(float hz, int fault, int guard, double secs)
     r.rms_err = sn ? sqrt(se / sn) : 0;
     return r;
 }
+
+static result_t run(float hz, int fault, int guard, double secs) { return run_cfg(hz, fault, guard, secs, 0, RX_NET_SIM); }
 
 /* Monte Carlo check of the recoverable-set claim: pick random states the kernel calls recoverable,
  * let an adversary command full tilt in the worst direction for one more tick, then hand over to
@@ -97,7 +103,7 @@ static int learning_test(void)
     float hz = 250;
     rx_cfg_t c; rx_cfg_default(&c, hz);
     rx_plant_t p = { 0.03, 0, 0 }; rx_est_t e = { 0 }; rx_guard_t g; rx_guard_init(&g);
-    rx_learner_init(&L, 4242, 0);
+    rx_learner_init(&L, 4242, NULL);
     float u_pending = 0; int have = 0, lost = 0; long iv = 0, iv_first = -1, iv_block = 0; uint32_t last_ep = 0;
     float cost_first = -1;
     for (long k = 0; k < (long)(900 * hz); k++) {
@@ -160,6 +166,31 @@ int main(void)
     }
     printf("\n== online learning from an untrained network, guardian in the loop ==\n");
     if (learning_test()) { printf("FAIL: learner lost the ball or did not improve\n"); fail = 1; }
+
+    /* The serial backend runs rx_cfg_hardware() at 50 Hz. A pilot trained for the simulator is vetoed at
+     * nearly every setpoint step there and strikes out (seen on the Pi 4, results/2026-11-20-pi4-emulated-io/).
+     * The guardian is right to veto it; the hardware-trained pilot must not need it. */
+    printf("\n== serial backend config: 50 Hz, rx_cfg_hardware(), +/-3 mm sensor, hardware-trained pilot ==\n");
+    printf("%-12s | %-28s | %-22s\n", "pilot fault", "WITH guardian", "WITHOUT guardian");
+    printf("%-12s | %-6s %-7s %-6s %-6s | %-6s\n", "", "ball", "detect", "edge", "interv", "ball");
+    for (int f = 1; f <= RX_F_COUNT; f++) {
+        result_t a = run_cfg(50.0f, f, 1, 20.0, 1, RX_NET_HW), b = run_cfg(50.0f, f, 0, 20.0, 1, RX_NET_HW);
+        char det[24] = "-";
+        if (a.first_detect_ms >= 0) snprintf(det, sizeof det, "%.0fms", a.first_detect_ms);
+        printf("%-12s | %-6s %-7s %-5.1fcm %-6d | %-6s\n", names[f], a.lost ? "LOST" : "kept", det, a.min_margin * 100,
+               a.interventions, b.lost ? "LOST" : "kept");
+        if (a.lost || a.min_margin < 0.010) fail = 1;
+    }
+    {
+        result_t hwp = run_cfg(50.0f, RX_F_NONE, 1, 120.0, 1, RX_NET_HW);
+        result_t sim = run_cfg(50.0f, RX_F_NONE, 1, 120.0, 1, RX_NET_SIM);
+        printf("  healthy, 120 s of +/-80 mm steps:  hardware pilot %d interventions, %d strike-outs, RMS %.1f mm"
+               "   |   simulator pilot (informational) %d interventions, %d strike-outs\n",
+               hwp.interventions, hwp.restarts, hwp.rms_err * 1000, sim.interventions, sim.restarts);
+        if (hwp.lost || hwp.restarts > 0 || hwp.interventions > 1) {
+            printf("FAIL: guardian has to overrule the healthy hardware pilot\n"); fail = 1;
+        }
+    }
 
     printf("\n%s\n", fail ? "SIMTEST FAILED" : "SIMTEST PASSED");
     return fail;
