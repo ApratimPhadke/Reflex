@@ -128,3 +128,72 @@ scripts        Ubuntu 24.04 host setup, doctor, firmware build/flash, deploy
 ## License
 
 MIT
+
+## Project status
+
+Where the build stands, as of **20 Nov 2026**. Green is done (with evidence in `results/`), the orange
+node is the step in progress, grey is still to do. Use the diagram's zoom and pan buttons on GitHub; open a
+stage below for what was done and where the proof is. The full checklist is `docs/ROADMAP.md`.
+
+```mermaid
+flowchart TD
+    A["A · Laptop + QNX SDP 8.0"]:::done --> B["B · QNX 8.0 on the Raspberry Pi 4"]:::done
+    B --> C["C · Guardian on QNX, simulated plant<br/>campaign 8/8 · learning 10 min, 0 balls lost"]:::done
+    C --> D1["D1–D4 · Serial path<br/>fake I/O node · emulator firmware on the Black Pill"]:::done
+    D1 --> D5["D5–D6 · Black Pill on the Pi over USB<br/>campaign 8/8 · unplug/replug · driver at boot"]:::done
+    D5 --> D7["D7–D8 · Plug-and-play software<br/>protocol v2 · reflex.conf · rxcal wizard · reflex-demo.sh"]:::done
+    D7 --> NOW["📍 YOU ARE HERE<br/>v2 emulator firmware flashed (20 Nov)<br/>next: board on the Pi → rxcal on the board → demo over serial"]:::now
+    NOW --> E["E · Mechanical build<br/>beam, pivot, servo linkage, sensor bracket"]:::todo
+    E --> F["F · Electronics + real firmware<br/>wiring, meter checks, make fw"]:::todo
+    F --> G["G · Calibrate + first closed loop<br/>./rxcal · fallback → AI → learning · measure the stuck-fault margin"]:::todo
+    G --> H["H · Evidence<br/>campaign + latency on the real beam · Linux A/B"]:::todo
+    H --> I["I · Video under 3:00<br/>rxctl script demo/video.rxs"]:::todo
+    I --> J["J · Submit on Devpost<br/>target 13 Dec · deadline 16 Dec 00:30 IST"]:::todo
+
+    classDef done fill:#1f6f3a,stroke:#3fb950,color:#ffffff
+    classDef now fill:#9a5b00,stroke:#ffb000,stroke-width:4px,color:#ffffff
+    classDef todo fill:#30363d,stroke:#8b949e,color:#e6edf3
+```
+
+<details>
+<summary><b>A–C · Laptop, QNX on the Pi, guardian on QNX</b> (done)</summary>
+
+- QNX build with zero warnings; all ten Phase 2 checks on the Pi 4 with the simulated plant: `results/2026-11-19-pi4-sim/`.
+- Fault campaign kept the ball in 8/8 with the guardian; HAM restart; rxfs `/dev/reflex`; 10 minutes of learning from scratch with 0 balls lost.
+</details>
+
+<details>
+<summary><b>D1–D4 · Serial path without the beam</b> (done)</summary>
+
+- Strict link parser with a fuzz test; reconnecting serial backend; `tools/fake_io_node.py` and `make test-serial` (`results/2026-11-20-host-fake-io/`).
+- Emulator firmware on the Black Pill, campaign over real USB from the laptop: `results/2026-11-20-host-blackpill-emulate/`.
+</details>
+
+<details>
+<summary><b>D5–D6 · Black Pill on the Pi over USB</b> (done)</summary>
+
+- QNX's USB serial driver is not on the quick-start image: copied from the SDP, now started at boot (`scripts/install-autostart.sh`).
+- Stale-buffer bug found and fixed (`tcflush` on open); campaign 8/8; unplug/replug survived; hardware-trained pilot with 0 interventions in 120 s; 10 min learning over USB with 0 balls lost: `results/2026-11-20-pi4-emulated-io/`.
+</details>
+
+<details>
+<summary><b>D7–D8 · Plug-and-play software</b> (done)</summary>
+
+- Protocol v2: the board reports raw readings and takes raw pulses; calibration lives on the Pi in `reflex.conf`.
+- `./rxcal` wizard; `make test-cal` recovers a fake rig's wrong-in-every-way calibration; `make test-serial` flies the campaign on it.
+- `./reflex-demo.sh start|stop|status`, dashboard captions, `rxctl script demo/video.rxs`. Step-by-step for the build day: `docs/HARDWARE_DAY.md`.
+</details>
+
+<details open>
+<summary><b>📍 Now · last end-to-end check before the real hardware</b></summary>
+
+- Done: v2 emulator firmware flashed over ST-LINK and running (20 Nov).
+- Next: Black Pill on the Pi; `rxcal` against the board's emulator over QNX; `reflex-demo.sh` on the serial backend.
+- Open items: two unexplained Pi reboots on 20 Nov (power and thermal now logged by `health-log.sh`); the stuck-fault margin (10.0–14.1 mm on the fake node against a 10 mm strip) must be measured on the real beam.
+</details>
+
+<details>
+<summary><b>E–J · Hardware, evidence, video, submission</b> (to do)</summary>
+
+Mechanical build and wiring (`docs/HARDWARE.md` Parts 1–4), real firmware and calibration (`docs/HARDWARE_DAY.md`), evidence on the real beam, the video from `demo/video.rxs`, and the Devpost submission (`docs/SUBMISSION.md`).
+</details>
