@@ -1,0 +1,59 @@
+== command: rxctl period 60000; rxctl release; (user pulls the Black Pill USB cable out of the Pi for ~3 s, plugs it back in)
+== ls -l /dev/serusb1
+crw-rw-rw-  1 root root 11,   1 2026-11-20 06:57 /dev/serusb1
+== rxctl events
+  470.04s ago  tick 11464     pilot killed: 3 unsafe commands [4685871]
+  470.04s ago  tick 11464     guardian took over (envelope)
+  470.02s ago  tick 11465     pilot died [4685871]
+  469.80s ago  tick 11476     pilot spawned [4829200]
+  469.26s ago  tick 11503     AI back in control
+  466.02s ago  tick 11665     guardian took over (envelope)
+  465.10s ago  tick 11711     AI back in control
+  461.90s ago  tick 11871     guardian took over (envelope)
+  460.98s ago  tick 11917     AI back in control
+  457.74s ago  tick 12079     pilot killed: 3 unsafe commands [4829200]
+  457.74s ago  tick 12079     guardian took over (envelope)
+  457.72s ago  tick 12080     pilot died [4829200]
+  457.50s ago  tick 12091     pilot spawned [4886544]
+  456.82s ago  tick 12125     AI back in control
+  453.76s ago  tick 12278     guardian took over (envelope)
+  452.92s ago  tick 12320     AI back in control
+  449.72s ago  tick 12480     guardian took over (envelope)
+  448.80s ago  tick 12526     AI back in control
+  445.76s ago  tick 12678     pilot killed: 3 unsafe commands [4886544]
+  445.76s ago  tick 12678     pilot quarantined
+  445.76s ago  tick 12678     guardian took over (envelope)
+  445.74s ago  tick 12679     pilot died [4886544]
+  295.94s ago  tick 20169     quarantine released
+  295.92s ago  tick 20170     pilot spawned [5038127]
+  295.40s ago  tick 20196     AI back in control
+  237.20s ago  tick 23106     guardian took over (envelope)
+  236.28s ago  tick 23152     AI back in control
+  177.34s ago  tick 26099     guardian took over (envelope)
+  176.58s ago  tick 26137     AI back in control
+  117.22s ago  tick 29105     guardian took over (envelope)
+  116.22s ago  tick 29155     AI back in control
+   69.58s ago  tick 31487     guardian took over (envelope)
+   69.02s ago  tick 31515     AI back in control
+   57.44s ago  tick 32094     guardian took over (envelope)
+   56.64s ago  tick 32134     AI back in control
+   37.36s ago  tick 33098     sensor lost
+   37.30s ago  tick 0         I/O node link down
+   33.80s ago  tick 0         I/O node link up [3]
+   33.78s ago  tick 33277     guardian took over (envelope)
+   33.10s ago  tick 33311     AI back in control
+== rxctl status
+reflex            v4  backend=serial  rate=50Hz
+mode              AI (none)
+ball              x=-95.1mm v=-0.091m/s setpoint=-80mm  margin=42.1mm
+command           pilot=+0.1931rad  actuator=+0.1931rad
+ticks             34434
+wake latency      max=39.9us  deadline-misses=0
+guardian exec     max=191.8us
+interventions     58 total
+  envelope        58
+pilot             pid=5038127 present=1 restarts=26 kills=24 quarantined=0 fault=none
+balls lost        12
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000
