@@ -1,0 +1,102 @@
+  ham              -
+  reflex-guardian  -
+  reflex-pilot     -
+ls: reflex.conf: No such file or directory
+$ ./rxcal --auto   (on /dev/serusb1, the Black Pill running the v2 emulator)
+rxcal: device /dev/serusb1, writing ./reflex.conf
+
+==================================================================
+ Step 1/8: link check
+==================================================================
+  node: reflex_io protocol 2, board BLACKPILL_F401CC, EMULATED plant
+  sensor: 50 readings in 1 s (50 valid, 0 'no reading')
+
+==================================================================
+ Step 2/8: level
+==================================================================
+Take the ball off the beam. Put the phone inclinometer on the beam and adjust
+until it reads 0.0 deg (+/-0.3).
+>>> KEEP HANDS CLEAR of the beam and the servo linkage. The servo will move.  [auto]
+  pulse 1500 us -> beam +10 mrad
+  pulse 1520 us -> beam +0 mrad
+  level_us = 1520
+
+==================================================================
+ Step 3/8: direction
+==================================================================
+Put the ball on the beam near the centre and let go. The beam will tilt a little each way.
+>>> KEEP HANDS CLEAR of the beam and the servo linkage. The servo will move.  [auto]
+  pulse +48 us: reading moved -24 mm
+Did you see the ball roll?  [auto: yes]
+
+==================================================================
+ Step 4/8: centre
+==================================================================
+Hold the ball still exactly over the pivot mark (gently, on the beam).  [auto]
+  centre: 255.2 mm (100 readings, spread 252..258)
+
+==================================================================
+ Step 5/8: range
+==================================================================
+Hold the ball against the end stop NEAREST the sensor.  [auto]
+Now hold the ball against the FAR end stop.  [auto]
+Now take the ball off the beam.  [auto]
+  near stop 56 mm, far stop 455 mm, no ball: 560 mm
+  range window 40..470 mm, usable half length 0.199 m
+
+==================================================================
+ Step 6/8: angle scale
+==================================================================
+Keep the ball OFF the beam. Put the inclinometer on the beam.
+>>> KEEP HANDS CLEAR of the beam and the servo linkage. The servo will move.  [auto]
+  pulse 1900 us: -10.89 deg  [auto]
+  pulse 1140 us: +10.89 deg  [auto]
+  servo_dir -1, us_per_mrad 2.000, sensor_dir +1
+
+==================================================================
+ Step 7/8: validation: 20 s closed loop on the fallback controller
+==================================================================
+Put the ball on the beam near the centre and let go.
+>>> KEEP HANDS CLEAR of the beam and the servo linkage. The servo will move.  [auto]
+
+  t= 0s  x=  -0.7 mm  worst   3.3 mm   
+  t= 1s  x=  +1.5 mm  worst   3.3 mm   
+  t= 2s  x=  +0.6 mm  worst   3.3 mm   
+  t= 3s  x=  -2.3 mm  worst   3.3 mm   
+  t= 4s  x=  +0.5 mm  worst   3.3 mm   
+  t= 5s  x=  -0.7 mm  worst   3.3 mm   
+  t= 6s  x=  +0.1 mm  worst   3.3 mm   
+  t= 7s  x=  -1.4 mm  worst   3.3 mm   
+  t= 8s  x=  +1.8 mm  worst   3.4 mm   
+  t= 9s  x=  +0.1 mm  worst   3.4 mm   
+  t=10s  x=  +0.5 mm  worst   3.4 mm   
+  t=11s  x=  +0.9 mm  worst   3.4 mm   
+  t=12s  x=  -0.7 mm  worst   3.4 mm   
+  t=13s  x=  +1.4 mm  worst   3.4 mm   
+  t=14s  x=  -0.0 mm  worst   3.4 mm   
+  t=15s  x=  -0.5 mm  worst   3.4 mm   
+  t=16s  x=  -0.9 mm  worst   3.4 mm   
+  t=17s  x=  -0.6 mm  worst   3.4 mm   
+  t=18s  x=  -1.6 mm  worst   3.4 mm   
+  t=19s  x=  -0.2 mm  worst   3.6 mm   
+  1001 control steps, worst |x| 3.6 mm, RMS 1.1 mm, 0 missing readings
+  PASS: the ball stayed inside +/-150 mm
+
+==================================================================
+ Step 8/8: write reflex.conf
+==================================================================
+  wrote ./reflex.conf:
+
+# Reflex rig calibration, written by rxcal. Format: docs/ARCHITECTURE.md (reflex.conf).
+level_us      = 1520
+us_per_mrad   = 2.0000
+servo_dir     = -1
+center_mm     = 255
+sensor_dir    = 1
+range_min_mm  = 40
+range_max_mm  = 470
+half_len_m    = 0.199
+calibrated_at = 2026-11-20T12:02:09
+board         = BLACKPILL_F401CC
+
+rxcal: done. Start the demo with ./reflex-demo.sh start

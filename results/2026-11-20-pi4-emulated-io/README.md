@@ -17,6 +17,9 @@ All target commands run in `~/reflex` as `qnxuser`; the only root step is starti
 | `10-learn-from-sim-10min.txt/.sh` | 10 min `--learn-from-sim` (hardware weights) over USB against the emulator board, period 3 s: 199 episodes, **0 balls lost**, 62 interventions (exploration; not counted as strikes), wake-up max 44.5 us, 0 deadline misses. Smoothed cost 0.41 -> 0.37 with swings up to 0.75: no clear improvement in 10 min from an already-tuned start | `./learn-serial10.sh` |
 | `11-reflex-demo.txt` | `reflex-demo.sh` on the Pi, simulated plant (no `reflex.conf` yet, so it says so and picks the simulator): start under HAM with rxfs and rxdash, a caption, HAM restart after `slay -s KILL` (starts 1 -> 2, ball kept), `rxctl script demo/video.rxs --check` (47 steps), stop, and a start 20 s later with 0 balls lost (`rxctl wipe` gives a demo start a fresh world) | see the file |
 | `12-health.log` | power/thermal log every 2 s (`health-log.sh`) from 07:53 UTC: every sample `throttled=0x0`, 50-53 C | `./health-log.sh &` |
+| `13-rxcal-auto-board.txt` | **v2 emulator firmware on the board** (flashed with st-flash, sha256 a2d02862...), Black Pill on the Pi: `rxcal --auto` over QNX recovers the board's compiled-in hidden calibration exactly: level 1520 us, 2.000 us/mrad, servo_dir -1, centre 255 mm, sensor_dir +1; 20 s validation worst 3.6 mm, PASS; writes `~/reflex/reflex.conf` | `./rxcal --auto` |
+| `14-demo-serial-campaign-v2.txt` | `reflex-demo.sh start` picks the serial backend by itself (node present, valid reflex.conf); campaign over protocol v2. **Rows 1-2 are invalid**: crash/freeze were never injected (guardian as root under HAM spawned a root pilot; `rxctl` as qnxuser got EPERM and the campaign ignored it). Kept as found | `./reflex-demo.sh start; ./rxctl reset; ./rxctl campaign campaign-v2.md` |
+| `15-campaign-v2-pilot-unprivileged.txt` | after the fix (a root guardian spawns the pilot as the pilot binary's owner, uid 1000, `posix_spawnattr_setcred`; the campaign reports a failed injection as NOT INJECTED): all 8 faults injected, **kept 8/8, lost 5/8 without**; crash taken over in 16 ms, freeze 76 ms; wake-up max 43.2 us over the campaign, 0 late ticks; guardian WCET 161.4 us. Stuck-at-max closest-to-end estimate 0.4 cm (noisy estimate; fake-node ground truth for this phase 10.0-14.1 mm). `guardian starts 2` here is carried over from run 14: the wipe failed because the root-created segment could not be removed by qnxuser (fixed: `reflex-demo.sh` wipes via sudo; a fresh start then counts 1) | as 14 |
 
 Fix made from this run: `src/guardian/rx_io.c` now calls `tcflush(fd, TCIFLUSH)` after opening the
 port (init and helper thread only, never the control loop). Without it the first tick after an
@@ -35,6 +38,8 @@ Caveats:
   3 kills quarantine it (after the campaign: kills at ticks 11464, 12079, 12678, takeovers 4 s apart = the
   setpoint half-period). The pilot was trained at 250 Hz with the simulator config, not the hardware config.
 - devc-serusb is not in the QSTI image. It was started by hand for 00-08; from 09 on it is started at boot by the hook.
+- The Pi's health log (`12-health.log`) stops at 08:28:59 UTC with a clean last sample; the Pi was up again at 11:52:05 UTC.
+  Most likely it was switched off in between (to be confirmed); not counted as a spontaneous reboot.
 - The Pi rebooted by itself twice, at 07:00:05 and 07:42:04 UTC, both while a guardian was running over serial (the second
   1.5 min into the first attempt at 10). Nothing in the system log; no watchdog process; no dumps. `12-health.log` was started
   after the second one and shows no under-voltage or throttling since; the cause is **not known**. Firmware throttle flags reset at boot.

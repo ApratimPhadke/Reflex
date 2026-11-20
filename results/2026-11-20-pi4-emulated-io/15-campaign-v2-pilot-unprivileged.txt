@@ -1,0 +1,70 @@
+== guardian under HAM as root, pilot spawned as uid 1000 (posix_spawnattr_setcred); board = v2 emulator, calibrated by rxcal
+  ham              running (pid 3510321 3473459 )
+  reflex-guardian  running (pid 20291637 )
+  reflex-pilot     running (pid 20308018 )
+  rxfs             running (pid 20340791 )
+  rxdash           running (pid 20361268 )
+  devc-serusb      running (pid 1191979 )
+  I/O node         /dev/serusb1 present
+  reflex            v4  backend=serial  rate=50Hz
+    9.21s ago  tick 0         I/O node link up [3]
+    9.19s ago  tick 0         I/O node identified (arg = protocol*10 + emulated) [21]
+$ ./rxctl reset; ./rxctl campaign campaign-v2.md
+# Reflex fault campaign
+
+- backend: `serial`, control rate 50 Hz
+- each fault is injected into a healthy system and left active for 4 s
+- *without Reflex* = the same pilot, same faults, guardian in bypass (pilot commands go straight to the actuator)
+
+- *closest to beam end* is the guardian's **estimate** (no ground truth on this backend; it includes sensor noise)
+
+| # | Injected pilot fault | Guardian took over after | Closest to beam end | Ball (with Reflex) | Pilot restarts | Ball (without Reflex) |
+|---|---|---|---|---|---|---|
+| 1 | pilot process killed (SIGKILL) | 16.0 ms | 13.0 cm | kept | 1 | kept |
+| 2 | pilot frozen (SIGSTOP), no CPU use | 76.0 ms | 12.7 cm | kept | 2 | kept |
+| 3 | pilot stuck in an infinite loop, 100% CPU | 76.0 ms | 11.9 cm | kept | 5 | **LOST** |
+| 4 | pilot answers 50 ms late | 98.0 ms | 11.9 cm | kept | 0 | kept |
+| 5 | pilot outputs NaN | 36.0 ms | 11.9 cm | kept | 0 | **LOST** |
+| 6 | pilot outputs 40 rad (limit is 0.21) | 35.0 ms | 11.7 cm | kept | 0 | **LOST** |
+| 7 | pilot output stuck at +max | 395.0 ms | 0.4 cm | kept | 2 | **LOST** |
+| 8 | pilot output sign-inverted (drives the ball off) | 515.0 ms | 1.3 cm | kept | 2 | **LOST** |
+
+**With Reflex: ball kept in 8 of 8 fault scenarios. Without Reflex: ball lost in 5 of 8.**
+
+```
+guardian wake-up latency, 11302 ticks at 50 Hz (period 20000 us)
+         4 - 8        us |########################################| 7878
+         8 - 16       us |###################################     | 3211
+        16 - 32       us |#######################                 | 202
+        32 - 64       us |###########                             | 11
+  p50 < 8 us   p99 < 32 us   p99.99 < 64 us   max = 43.2 us   late ticks (> period/2) = 0
+```
+
+Guardian worst-case execution time per tick: 161.4 us. Spoofed proposals refused: 0.
+campaign: crash   guarded=kept bypass=kept
+campaign: freeze  guarded=kept bypass=kept
+campaign: spin    guarded=kept bypass=LOST
+campaign: slow    guarded=kept bypass=kept
+campaign: nan     guarded=kept bypass=LOST
+campaign: huge    guarded=kept bypass=LOST
+campaign: stuck   guarded=kept bypass=LOST
+campaign: flip    guarded=kept bypass=LOST
+$ ./rxctl status
+reflex            v4  backend=serial  rate=50Hz
+mode              SAFE (hold)
+ball              x=-56.8mm v=+0.023m/s setpoint=-80mm  margin=117.0mm
+command           pilot=-0.1602rad  actuator=-0.0438rad
+ticks             11304
+wake latency      max=43.2us  deadline-misses=0
+guardian exec     max=161.4us
+interventions     12 total
+  no-pilot        1
+  stale           3
+  non-finite      1
+  range           1
+  envelope        6
+pilot             pid=28119088 present=1 restarts=12 kills=10 quarantined=0 fault=none
+balls lost        13
+guardian starts   2
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000

@@ -122,7 +122,7 @@ scripts        Ubuntu 24.04 host setup, doctor, firmware build/flash, deploy
 - The recoverable-set bound is analytic and conservative for this plant, and is checked by Monte Carlo simulation and fault injection. It is not a formal proof, and it is only as good as the plant model.
 - The pilot's fault modes are test hooks compiled into the pilot. Crash and freeze are injected from outside with signals.
 - The guardian trusts its sensor. Sensor faults are only handled as "no ball seen".
-- The pilot is isolated by interface (it is told a channel and nothing else) but runs as the same user. A production system would also run it under a different user and a QNX security policy.
+- The pilot is isolated by interface (it is told a channel and nothing else). A guardian running as root (under HAM) spawns it as an ordinary user, never root; started by hand it runs as the same user as the guardian. A production system would give it a dedicated user and a QNX security policy.
 - The online learner is a simple evolution strategy. It is slow compared with gradient-based reinforcement learning and is there to exercise the guardian, not to advance learning algorithms.
 
 ## License
@@ -142,8 +142,8 @@ flowchart TD
     C --> D1["D1–D4 · Serial path<br/>fake I/O node · emulator firmware on the Black Pill"]:::done
     D1 --> D5["D5–D6 · Black Pill on the Pi over USB<br/>campaign 8/8 · unplug/replug · driver at boot"]:::done
     D5 --> D7["D7–D8 · Plug-and-play software<br/>protocol v2 · reflex.conf · rxcal wizard · reflex-demo.sh"]:::done
-    D7 --> NOW["📍 YOU ARE HERE<br/>v2 emulator firmware flashed (20 Nov)<br/>next: board on the Pi → rxcal on the board → demo over serial"]:::now
-    NOW --> E["E · Mechanical build<br/>beam, pivot, servo linkage, sensor bracket"]:::todo
+    D7 --> D9["D9 · End to end on the board over QNX<br/>v2 firmware · rxcal recovers the board's calibration · demo + campaign 8/8"]:::done
+    D9 --> E["📍 YOU ARE HERE<br/>E · Mechanical build<br/>beam, pivot, servo linkage, sensor bracket"]:::now
     E --> F["F · Electronics + real firmware<br/>wiring, meter checks, make fw"]:::todo
     F --> G["G · Calibrate + first closed loop<br/>./rxcal · fallback → AI → learning · measure the stuck-fault margin"]:::todo
     G --> H["H · Evidence<br/>campaign + latency on the real beam · Linux A/B"]:::todo
@@ -184,16 +184,24 @@ flowchart TD
 - `./reflex-demo.sh start|stop|status`, dashboard captions, `rxctl script demo/video.rxs`. Step-by-step for the build day: `docs/HARDWARE_DAY.md`.
 </details>
 
-<details open>
-<summary><b>📍 Now · last end-to-end check before the real hardware</b></summary>
+<details>
+<summary><b>D9 · End to end on the board over QNX</b> (done)</summary>
 
-- Done: v2 emulator firmware flashed over ST-LINK and running (20 Nov).
-- Next: Black Pill on the Pi; `rxcal` against the board's emulator over QNX; `reflex-demo.sh` on the serial backend.
+- v2 emulator firmware flashed over ST-LINK; on the Pi, `rxcal --auto` recovered the board's hidden calibration exactly (level 1520 µs, 2.000 µs/mrad, both signs, centre 255 mm).
+- `reflex-demo.sh start` chose the serial backend by itself; campaign over USB kept the ball in 8/8 with all eight faults injected: `results/2026-11-20-pi4-emulated-io/` 13–15.
+- Fixed on the way: under HAM the untrusted pilot used to run as root; a root guardian now spawns it as an ordinary user.
+</details>
+
+<details open>
+<summary><b>📍 Now · E · Mechanical build</b></summary>
+
+- Build the beam, pivot, servo linkage and sensor bracket: `docs/HARDWARE.md` Parts 1–3. Nothing on the software side is waiting.
+- Then, in order: wiring (Part 4), real firmware, `./rxcal`, demo in stages: `docs/HARDWARE_DAY.md`.
 - Open items: two unexplained Pi reboots on 20 Nov (power and thermal now logged by `health-log.sh`); the stuck-fault margin (10.0–14.1 mm on the fake node against a 10 mm strip) must be measured on the real beam.
 </details>
 
 <details>
-<summary><b>E–J · Hardware, evidence, video, submission</b> (to do)</summary>
+<summary><b>F–J · Electronics, calibration, evidence, video, submission</b> (to do)</summary>
 
-Mechanical build and wiring (`docs/HARDWARE.md` Parts 1–4), real firmware and calibration (`docs/HARDWARE_DAY.md`), evidence on the real beam, the video from `demo/video.rxs`, and the Devpost submission (`docs/SUBMISSION.md`).
+Wiring and real firmware (`docs/HARDWARE.md` Part 4–5), calibration and the first closed loop (`docs/HARDWARE_DAY.md`), evidence on the real beam, the video from `demo/video.rxs`, and the Devpost submission (`docs/SUBMISSION.md`).
 </details>

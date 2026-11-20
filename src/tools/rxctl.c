@@ -203,12 +203,13 @@ static void campaign(FILE *out)
     fprintf(out, "| # | Injected pilot fault | Guardian took over after | Closest to beam end | Ball (with Reflex) | Pilot restarts | Ball (without Reflex) |\n");
     fprintf(out, "|---|---|---|---|---|---|---|\n");
 
-    int kept = 0, lost_without = 0;
+    int kept = 0, lost_without = 0, skipped = 0;
     atomic_store(&shm->sp_auto, 1);
     rx_command(shm, "train off"); rx_command(shm, "period 4000");   /* a campaign is run against a frozen pilot */
     for (unsigned fi = 0; fi < NFAULTS; fi++) {
         const fault_t *F = &FAULTS[fi];
         double detect_ms = -1, min_edge = 1e9; unsigned lost_g = 0, lost_b = 0, restarts = 0;
+        int not_injected = 0;
         for (int pass = 0; pass < 2; pass++) {                  /* 0 = guarded, 1 = bypass */
             rx_command(shm, "fault clear"); rx_command(shm, "guard on"); rx_command(shm, "release");
             if (!wait_ai(10000)) fprintf(stderr, "campaign: warning, system did not return to AI mode before '%s'\n", F->name);
@@ -220,7 +221,10 @@ static void campaign(FILE *out)
             unsigned r0 = atomic_load(&shm->pilot_restarts) + atomic_load(&shm->pilot_kills);
             uint64_t idx = atomic_load(&shm->head);
             uint64_t t_inj = rx_now_ns();
-            rx_fault_apply(shm, F->name, F->arg);
+            if (rx_fault_apply(shm, F->name, F->arg) != 0) {        /* e.g. no permission to signal the pilot */
+                fprintf(stderr, "campaign: could not inject '%s' (%s): row marked NOT INJECTED\n", F->name, strerror(errno));
+                not_injected = 1;
+            }
             uint64_t end = t_inj + (uint64_t)run_ms * 1000000ull;
             while (rx_now_ns() < end) {
                 uint64_t h = atomic_load(&shm->head);
@@ -244,6 +248,13 @@ static void campaign(FILE *out)
         }
         char det[32] = "not needed";
         if (detect_ms >= 0) snprintf(det, sizeof det, "%.1f ms", detect_ms);
+        if (not_injected) {
+            fprintf(out, "| %u | %s | **NOT INJECTED** (could not signal the pilot) | - | - | - | - |\n", fi + 1, F->what);
+            fflush(out);
+            fprintf(stderr, "campaign: %-7s NOT INJECTED\n", F->name);
+            skipped++;
+            continue;
+        }
         fprintf(out, "| %u | %s | %s | %.1f cm | %s | %u | %s |\n", fi + 1, F->what, det, min_edge * 100,
                 lost_g ? "**LOST**" : "kept", restarts, lost_b ? "**LOST**" : "kept");
         fflush(out);
@@ -252,8 +263,10 @@ static void campaign(FILE *out)
         fprintf(stderr, "campaign: %-7s guarded=%s bypass=%s\n", F->name, lost_g ? "LOST" : "kept", lost_b ? "LOST" : "kept");
     }
     rx_command(shm, "release");
+    unsigned ran = (unsigned)NFAULTS - (unsigned)skipped;
     fprintf(out, "\n**With Reflex: ball kept in %d of %u fault scenarios. Without Reflex: ball lost in %d of %u.**\n\n",
-            kept, (unsigned)NFAULTS, lost_without, (unsigned)NFAULTS);
+            kept, ran, lost_without, ran);
+    if (skipped) fprintf(out, "**%d fault(s) could not be injected and are not counted above.**\n\n", skipped);
     fprintf(out, "```\n"); cmd_latency(out); fprintf(out, "```\n");
     fprintf(out, "\nGuardian worst-case execution time per tick: %.1f us. Spoofed proposals refused: %u.\n",
             atomic_load(&shm->exec_max_ns) / 1e3, atomic_load(&shm->rejected_senders));
@@ -349,7 +362,7 @@ int main(int argc, char **argv)
         rx_shm_t *w = rx_shm_open(0);
         if (w) {
             pid_t g = atomic_load(&w->guardian_pid);
-            if (g > 0 && kill(g, 0) == 0) { fprintf(stderr, "rxctl: a guardian is running (pid %d); stop it first\n", (int)g); return 1; }
+            if (g > 0 && (kill(g, 0) == 0 || errno == EPERM)) {   /* EPERM: alive, but root (HAM) */ fprintf(stderr, "rxctl: a guardian is running (pid %d); stop it first\n", (int)g); return 1; }
         }
         if (rx_shm_remove() != 0 && errno != ENOENT) { perror("rxctl: wipe"); return 1; }
         printf("shared memory removed: the next guardian starts with a fresh world and counters\n");
@@ -365,7 +378,7 @@ int main(int argc, char **argv)
         for (;;) { rx_status_text(shm, buf, sizeof buf); printf("\033[H\033[2J%s", buf); fflush(stdout); msleep(200); }
     }
     else if (!strcmp(c, "inject") && argc >= 3) {
-        if (rx_fault_apply(shm, argv[2], argc >= 4 ? (uint32_t)atoi(argv[3]) : 0) != 0) { fprintf(stderr, "rxctl: unknown fault or no pilot\n"); return 1; }
+        if (rx_fault_apply(shm, argv[2], argc >= 4 ? (uint32_t)atoi(argv[3]) : 0) != 0) { fprintf(stderr, "rxctl: could not inject '%s': %s\n", argv[2], strerror(errno)); return 1; }
         printf("injected: %s\n", argv[2]);
     }
     else if (!strcmp(c, "clear")) rx_command(shm, "fault clear");

@@ -55,7 +55,7 @@ do_start() {
         set -- --backend serial --dev "$DEV" "$@"
     fi
     set -- --weights "$DIR/reflex-policy.bin" "$@"          # absolute: HAM's working directory is not ours
-    ./rxctl wipe > /dev/null 2>&1      # a demo start gets a fresh world and zeroed counters (HAM restarts still resume)
+    as_root ./rxctl wipe > /dev/null 2>&1      # a demo start gets a fresh world and zeroed counters (HAM restarts still resume)
 
     if have_sudo && [ -x ./ham ] && [ -x ./rxham ]; then
         running ham || { sudo -n sh -c "cd '$DIR'; ./ham > '$LOGS/ham.log' 2>&1 < /dev/null &" > /dev/null 2>&1 < /dev/null; sleep 1; }

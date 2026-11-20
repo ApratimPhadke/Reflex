@@ -238,7 +238,7 @@ int main(int argc, char **argv)
     rx_shm_t *shm = rx_shm_open(0);
     if (shm) {
         pid_t g = atomic_load(&shm->guardian_pid);
-        if (g > 0 && kill(g, 0) == 0) {
+        if (g > 0 && (kill(g, 0) == 0 || errno == EPERM)) {   /* EPERM: alive, but root (HAM) */
             fprintf(stderr, "rxcal: a reflex-guardian is running (pid %d). Stop it first (./reflex-demo.sh stop).\n", (int)g);
             return 1;
         }
