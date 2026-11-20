@@ -11,6 +11,7 @@ guardian's job.
 
 usage: python3 tools/train_policy.py [--iters 40] [--out src/core/policy_weights.h]
        python3 tools/train_policy.py --hardware     (-> src/core/policy_weights_hw.h)
+       python3 tools/train_policy.py --plant joint  (-> src/core/policy_weights_joint.h)
 
 --hardware trains the pilot the serial backend flies: 50 Hz and rx_cfg_hardware()
 (longer actuator delay, slower estimator), a noisy sensor, one tick of pilot latency,
@@ -274,6 +275,152 @@ def train_hw(a):
     print("wrote", out)
 
 
+# ======================================================================= robot joint (--plant joint)
+# must match rx_cfg_joint() in src/core/rx_core.c
+J_I, J_MGL, J_B, J_TMAX, J_SLEW = 0.20, 1.5, 0.05, 4.0, 200.0
+J_LIM, J_EDGE, J_TD, J_ETA, J_WN, J_ZETA, J_EST_TAU = 1.2, 0.05, 0.05, 0.7, 5.0, 1.0, 0.01
+J_HOLD, J_INNER, J_SPLIM = 0.5, 0.1, 0.8
+J_SE, J_SV, J_SX = 0.3, 3.0, 1.0                     # input scales, as NETS[RX_NET_JOINT]
+
+
+def policy_joint(w, x, v, sp):
+    z = np.zeros_like(x)
+    o = net_raw(w, (sp - x) / J_SE, v / J_SV, x / J_SX) - net_raw(w, z, z, x / J_SX)
+    return np.clip(J_MGL * np.sin(x) + J_TMAX * np.tanh(o), -J_TMAX, J_TMAX)
+
+
+def joint_margin(x, v):
+    a_max = (J_TMAX + J_MGL) / J_I
+    a_brk = J_ETA * (J_TMAX - J_MGL) / J_I
+
+    def side(s):
+        xs, vs = s * x, s * v
+        xd = xs + vs * J_TD + 0.5 * a_max * J_TD ** 2
+        vd = vs + a_max * J_TD
+        reach = np.maximum(xs, xd)
+        reach = np.where(vd > 0, np.maximum(reach, xd + vd ** 2 / (2 * a_brk)), reach)
+        return (J_LIM - J_EDGE) - reach
+
+    r, l = side(1.0), side(-1.0)
+    return np.minimum(r, l), r, l
+
+
+def joint_safe_u(x, v, sp):
+    _, r, l = joint_margin(x, v)
+    tau = np.clip(J_I * (J_WN * J_WN * (sp - x) - 2 * J_ZETA * J_WN * v) + J_MGL * np.sin(x), -J_TMAX, J_TMAX)
+    near = (r < 0.02) | (l < 0.02)
+    return np.where(near, np.where(r < l, -J_TMAX, J_TMAX), tau)
+
+
+def rollout_joint(w, rng, episodes=24, hz=250.0, secs=6.0, stats=False, policy_fn=None):
+    """Joint plant with the guardian in the loop (one-step envelope check, hold, fallback)."""
+    pol = policy_fn or policy_joint
+    P = w.shape[0]
+    dt = 1.0 / hz
+    n = int(secs * hz)
+    sub = max(1, int(round(dt / 0.0005)))
+    hold_ticks = int(J_HOLD * hz)
+    x = np.tile(rng.uniform(-0.5, 0.5, (1, episodes)), (P, 1))
+    v = np.zeros((P, episodes))
+    tq = np.zeros((P, episodes))
+    i_scale = np.tile(rng.uniform(0.85, 1.15, (1, episodes)), (P, 1))     # domain randomisation
+    g_scale = np.tile(rng.uniform(0.85, 1.15, (1, episodes)), (P, 1))
+    square = rng.random(episodes) < 0.5
+    phase = rng.integers(0, int(3 * hz), episodes)
+    switch = rng.integers(int(1.0 * hz), int(2.5 * hz), episodes)
+    sp_rand = rng.uniform(-J_SPLIM, J_SPLIM, episodes)
+    thf = np.exp(-dt / J_EST_TAU)
+    alpha, beta = 1 - thf * thf, (1 - thf) ** 2
+    xe, ve = x.copy(), np.zeros_like(x)
+    u_prop = np.zeros_like(x)
+    ai = np.zeros((P, episodes), bool)
+    hold = np.full((P, episodes), hold_ticks)
+    dead = np.zeros((P, episodes), bool)
+    cost = np.zeros(P); vetoes = np.zeros(P)
+    h = max(dt, 0.02)
+    for t in range(n):
+        flip = (t % switch) == (switch - 1)
+        sp_rand = np.where(flip, rng.uniform(-J_SPLIM, J_SPLIM, episodes), sp_rand)
+        sq = np.where(((t + phase) // int(3 * hz)) % 2 == 0, 0.6, -0.6)
+        sp = np.broadcast_to(np.where(square, sq, sp_rand)[None, :], x.shape)
+        z = x + 0.0015 * rng.normal(size=(1, episodes))
+        xp = xe + ve * dt
+        r = z - xp
+        xe = xp + alpha * r
+        ve = ve + beta * r / dt
+        a = (u_prop - J_MGL * np.sin(xe) - J_B * ve) / J_I
+        veto = joint_margin(xe + ve * h + 0.5 * a * h * h, ve + a * h)[0] <= 0
+        vetoes += (veto & ai & ~dead).sum(axis=1) / episodes
+        m_now = joint_margin(xe, ve)[0]
+        back = ~veto & ~ai & (hold == 0) & (m_now >= J_INNER)
+        hold = np.where(veto, hold_ticks, np.where(~ai & (hold > 0), hold - 1, hold))
+        newly_safe = veto & ai
+        ai = np.where(veto, False, ai | back)
+        u = np.where(ai, u_prop, joint_safe_u(xe, ve, sp))
+        for _ in range(sub):
+            hs = dt / sub
+            tq += np.clip(u - tq, -J_SLEW * hs, J_SLEW * hs)
+            acc = (tq - J_MGL * g_scale * np.sin(x) - J_B * v) / (J_I * i_scale)
+            v += acc * hs
+            x += v * hs
+        dead |= np.abs(x) > J_LIM
+        u_prop = pol(w, xe, ve, sp)
+        c = ((x - sp) / 0.3) ** 2 + 0.01 * (u_prop / J_TMAX) ** 2 + 0.5 * (~ai) + 40.0 * newly_safe
+        c = c + 40.0 * np.clip(0.1 - joint_margin(x, v)[0], 0, None)
+        cost += np.where(dead, 50.0, c).mean(axis=1)
+    if stats:
+        return cost / n, vetoes / (secs / 60.0), dead.sum(axis=1)
+    return cost / n
+
+
+def clone_joint(rng, steps=4000, lr=0.02, wn=7.0, zeta=0.9):
+    """Fit the network's raw output to a gravity-compensated PD law, so CEM starts from something that works."""
+    w = rng.normal(0, 0.3, (1, NPARAM))
+    m = np.zeros_like(w); s = np.zeros_like(w)
+    for it in range(1, steps + 1):
+        x = rng.uniform(-1.0, 1.0, 512); v = rng.uniform(-3, 3, 512); sp = rng.uniform(-J_SPLIM, J_SPLIM, 512)
+        resid = J_I * (wn * wn * (sp - x) - 2 * zeta * wn * v)              # torque on top of gravity compensation
+        tgt = np.arctanh(np.clip(resid / J_TMAX, -0.995, 0.995))
+        W1, b1, w2, b2 = unpack(w)
+        f = np.stack([(sp - x) / J_SE, v / J_SV, x / J_SX], axis=-1)
+        hpre = f @ W1[0].T + b1[0]; hh = np.tanh(hpre)
+        o = hh @ w2[0] + b2[0]
+        do = 2 * (o - tgt) / len(x)
+        gw2 = hh.T @ do; gb2 = do.sum()
+        dh = np.outer(do, w2[0]) * (1 - hh ** 2)
+        gW1 = dh.T @ f; gb1 = dh.sum(0)
+        g = np.concatenate([gW1.ravel(), gb1, gw2, [gb2]])[None, :] * 1e2
+        m = 0.9 * m + 0.1 * g; s = 0.999 * s + 0.001 * g * g
+        w -= lr * (m / (1 - 0.9 ** it)) / (np.sqrt(s / (1 - 0.999 ** it)) + 1e-8)
+    return w[0]
+
+
+def train_joint(a):
+    rng = np.random.default_rng(a.seed)
+    mean = clone_joint(rng)
+    c, vpm, lost = rollout_joint(mean[None, :], np.random.default_rng(1), stats=True)
+    print(f"cloned PD      cost {c[0]:.4f}  vetoes/min {vpm[0]:.2f}  lost {lost[0]}")
+    sigma = np.full(NPARAM, 0.06)
+    for it in range(a.iters):
+        pop = mean + sigma * rng.normal(size=(a.pop, NPARAM))
+        pop[0] = mean
+        cost = rollout_joint(pop, np.random.default_rng(1000 + it))
+        elite = pop[np.argsort(cost)[: a.pop // 6]]
+        mean = 0.5 * mean + 0.5 * elite.mean(0)
+        sigma = 0.7 * sigma + 0.3 * elite.std(0) + 0.002
+        if it % 5 == 0 or it == a.iters - 1:
+            print(f"iter {it:3d}  best {cost.min():.4f}  mean-of-elite {np.sort(cost)[: a.pop // 6].mean():.4f}")
+    c, vpm, lost = rollout_joint(mean[None, :], np.random.default_rng(1), episodes=64, secs=30.0, stats=True)
+    cf, vf, lf = rollout_joint(mean[None, :], np.random.default_rng(1), episodes=64, secs=30.0, stats=True,
+                               policy_fn=lambda w, x, v, sp: joint_safe_u(x, v, sp))
+    print(f"final          cost {c[0]:.4f}  vetoes/min {vpm[0]:.2f}  lost {lost[0]} (64 episodes x 30 s, held-out seed)")
+    print(f"fallback law   cost {cf[0]:.4f}  vetoes/min {vf[0]:.2f}  lost {lf[0]} (same episodes, flown as the pilot)")
+    out = a.out or "src/core/policy_weights_joint.h"
+    export(mean, out, c[0], prefix="rx_poljt", guard="RX_POLICY_WEIGHTS_JOINT_H",
+           note=f"robot joint (rx_cfg_joint) with the guardian in the loop; vetoes/min {vpm[0]:.2f}")
+    print("wrote", out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=40)
@@ -281,7 +428,10 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--out", default=None)
     ap.add_argument("--hardware", action="store_true", help="train for the serial backend (50 Hz, rx_cfg_hardware)")
+    ap.add_argument("--plant", choices=("beam", "joint"), default="beam", help="joint: the robot-joint plant (rx_cfg_joint)")
     a = ap.parse_args()
+    if a.plant == "joint":
+        return train_joint(a)
     if a.hardware:
         return train_hw(a)
     a.out = a.out or "src/core/policy_weights.h"

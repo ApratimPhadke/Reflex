@@ -166,19 +166,29 @@ int rx_status_text(const rx_shm_t *s, char *buf, int cap)
     rx_rec_t r; memset(&r, 0, sizeof r);
     uint64_t h = atomic_load(&s->head);
     if (h) rx_shm_get(s, h - 1, &r);
+    char plant_line[128], cmd_line[96];
+    if (!strcmp(s->plant, "joint")) {
+        snprintf(plant_line, sizeof plant_line, "joint             angle=%+.1fdeg w=%+.1fdeg/s setpoint=%+.0fdeg  margin=%.1fdeg",
+                 r.x * 57.29578, r.v * 57.29578, r.sp * 57.29578, r.margin * 57.29578);
+        snprintf(cmd_line, sizeof cmd_line, "command           pilot=%+.3fNm  actuator=%+.3fNm", r.u_ai, r.u_out);
+    } else {
+        snprintf(plant_line, sizeof plant_line, "ball              x=%+.1fmm v=%+.3fm/s setpoint=%+.0fmm  margin=%.1fmm",
+                 r.x * 1e3, r.v, r.sp * 1e3, r.margin * 1e3);
+        snprintf(cmd_line, sizeof cmd_line, "command           pilot=%+.4frad  actuator=%+.4frad", r.u_ai, r.u_out);
+    }
     int n = snprintf(buf, cap,
-        "reflex            v%d  backend=%s  rate=%.0fHz\n"
+        "reflex            v%d  backend=%s  plant=%s  rate=%.0fHz\n"
         "mode              %s (%s)%s\n"
-        "ball              x=%+.1fmm v=%+.3fm/s setpoint=%+.0fmm  margin=%.1fmm\n"
-        "command           pilot=%+.4frad  actuator=%+.4frad\n"
+        "%s\n"
+        "%s\n"
         "ticks             %llu\n"
         "wake latency      max=%.1fus  deadline-misses=%llu\n"
         "guardian exec     max=%.1fus\n"
         "interventions     %llu total\n",
-        RX_VERSION, s->backend, s->hz,
+        RX_VERSION, s->backend, s->plant[0] ? s->plant : "beam", s->hz,
         rx_mode_name[atomic_load(&s->mode) % 3], rx_reason_name[atomic_load(&s->reason) % RX_R_COUNT],
         !atomic_load(&s->guard_enabled) ? "  ** GUARDIAN BYPASSED **" : atomic_load(&s->force_fallback) ? "  (fallback only: pilot ignored)" : "",
-        r.x * 1e3, r.v, r.sp * 1e3, r.margin * 1e3, r.u_ai, r.u_out,
+        plant_line, cmd_line,
         (unsigned long long)ticks,
         atomic_load(&s->lat_max_ns) / 1e3, (unsigned long long)atomic_load(&s->deadline_miss),
         atomic_load(&s->exec_max_ns) / 1e3, (unsigned long long)iv);

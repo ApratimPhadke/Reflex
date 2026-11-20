@@ -1,6 +1,6 @@
 /* reflex-pilot - the UNTRUSTED AI controller.
  *
- *   reflex-pilot <guardian-pid> <channel-id> <hz> [--hardware] [--learn | --learn-from-sim] [--weights FILE]
+ *   reflex-pilot <guardian-pid> <channel-id> <hz> [--hardware] [--plant joint] [--learn | --learn-from-sim] [--weights FILE]
  *
  * Default: a frozen neural network trained in simulation.
  * --hardware: the plant is the real rig (serial backend). Fly the weights trained for
@@ -65,18 +65,20 @@ int main(int argc, char **argv)
     pid_t gpid = (pid_t)atoi(argv[1]);
     int chid = atoi(argv[2]);
     float hz = (float)atof(argv[3]);
-    int learn = 0, hardware = 0;
+    int learn = 0, hardware = 0, joint = 0;
     const char *weights = weights_path;
     for (int i = 4; i < argc; i++) {
         if (!strcmp(argv[i], "--learn")) learn = 1;
         else if (!strcmp(argv[i], "--hardware")) hardware = 1;
+        else if (!strcmp(argv[i], "--plant") && i + 1 < argc) joint = !strcmp(argv[++i], "joint");
         else if (!strcmp(argv[i], "--learn-from-sim")) learn = 2;
         else if (!strcmp(argv[i], "--weights") && i + 1 < argc) weights = argv[++i];
     }
     if (hz < 1) return 2;
     rx_cfg_t cfg; rx_cfg_default(&cfg, hz);
     if (hardware) rx_cfg_hardware(&cfg);
-    const rx_net_t *net = rx_policy_net(hardware ? RX_NET_HW : RX_NET_SIM);
+    if (joint) { rx_cfg_joint(&cfg, hz); learn = 0; }        /* the learner is beam-only */
+    const rx_net_t *net = rx_policy_net(joint ? RX_NET_JOINT : hardware ? RX_NET_HW : RX_NET_SIM);
 
     if (learn) {
         rx_learner_init(&L, (uint64_t)time(NULL) * 2654435761u + (uint64_t)getpid(), learn == 2 ? net : NULL);
