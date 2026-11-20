@@ -20,7 +20,7 @@ case "${1:-build}" in
 build)
     mkdir -p "$OUT"
     "$AC" compile --fqbn "$FQBN" --output-dir "$OUT" --warnings default \
-        --build-property "compiler.cpp.extra_flags=-DREFLEX_EMULATE=$EMULATE" firmware/reflex_io
+        --build-property "compiler.cpp.extra_flags=-DREFLEX_EMULATE=$EMULATE -DREFLEX_BOARD_ID=$BOARD" firmware/reflex_io
     echo "$BOARD EMULATE=$EMULATE" > "$OUT/variant.txt"
     ls -l "$OUT"/reflex_io.ino.bin
     ;;

@@ -91,7 +91,7 @@ slay reflex-guardian
 ./rxctl period 2000                # shorter episodes, faster learning
 ```
 
-No hardware is needed for any of the above: the guardian includes a ball-and-beam simulator and everything runs in QEMU. With an I/O node (`firmware/reflex_io`) the same binaries drive a real beam: `./reflex-guardian --backend serial --dev /dev/serusb1 --learn-from-sim` starts from the simulator-trained weights and adapts them to the real plant.
+No hardware is needed for any of the above: the guardian includes a ball-and-beam simulator and everything runs in QEMU. With an I/O node (`firmware/reflex_io`) the same binaries drive a real beam: calibrate once with the `./rxcal` wizard (it writes `reflex.conf`), then `./reflex-demo.sh start --learn-from-sim` starts from weights trained for the hardware configuration and adapts them to the real plant. Hardware day, step by step: `docs/HARDWARE_DAY.md`.
 
 Working on this with Claude Code: see `CLAUDE.md` and **[docs/CLAUDE_CODE_PROMPT.md](docs/CLAUDE_CODE_PROMPT.md)**. Full instructions, from a blank machine to a submitted project: **[docs/GUIDE.md](docs/GUIDE.md)**. Building the beam: **[docs/HARDWARE.md](docs/HARDWARE.md)**. Step-by-step checklist: **[docs/ROADMAP.md](docs/ROADMAP.md)**. Design notes: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 

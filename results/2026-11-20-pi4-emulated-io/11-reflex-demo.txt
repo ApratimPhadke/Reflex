@@ -1,0 +1,51 @@
+$ ./reflex-demo.sh status
+  ham              running (pid 32804912 32784434 )
+  reflex-guardian  running (pid 52592693 )
+  reflex-pilot     running (pid 52604980 )
+  rxfs             running (pid 52641847 )
+  rxdash           running (pid 52662323 )
+  devc-serusb      running (pid 1183787 )
+  I/O node         /dev/serusb1 present
+  reflex            v4  backend=sim  rate=1000Hz
+  mode              AI (none)
+  ball              x=-68.2mm v=+0.006m/s setpoint=-80mm  margin=113.3mm
+  command           pilot=-0.0119rad  actuator=-0.0119rad
+  balls lost        0
+  dashboard        http://10.203.87.190:8080/   (or http://qnxpi.local:8080/)
+$ ./rxctl caption Hello from the video script
+$ curl http://localhost:8080/api/state  (from the laptop, see below)
+$ sudo slay -s KILL reflex-guardian ; sleep 4
+guardian starts   1
+mode              AI (none)
+balls lost        0
+guardian starts   2
+$ ./rxctl script demo/video.rxs --check
+demo/video.rxs: 47 steps OK
+$ ./reflex-demo.sh stop
+reflex-demo: stopped (the I/O node levels the beam by itself; ham stays up, idle)
+  ham              running (pid 32804912 32784434 )
+  reflex-guardian  -
+  reflex-pilot     -
+  rxfs             -
+  rxdash           -
+  devc-serusb      running (pid 1183787 )
+  I/O node         /dev/serusb1 present
+$ sleep 20; ./reflex-demo.sh start   (a stale world must not lose the ball: rxctl wipe)
+reflex-demo: I/O node present but no valid calibration (./reflex.conf: No such file or directory) -> simulated plant
+             calibrate with: ./rxcal --dev /dev/serusb1
+reflex-demo: guardian started under HAM (restarted if it dies), plant: sim
+  ham              running (pid 32804912 32784434 )
+  reflex-guardian  running (pid 58359860 )
+  reflex-pilot     running (pid 58372147 )
+  rxfs             running (pid 58409014 )
+  rxdash           running (pid 58429489 )
+  devc-serusb      running (pid 1183787 )
+  I/O node         /dev/serusb1 present
+  reflex            v4  backend=sim  rate=1000Hz
+  mode              AI (none)
+  ball              x=-38.4mm v=-0.169m/s setpoint=-80mm  margin=92.4mm
+  command           pilot=+0.0780rad  actuator=+0.0780rad
+  balls lost        0
+  dashboard        http://10.203.87.190:8080/   (or http://qnxpi.local:8080/)
+0
+reflex-demo: stopped (the I/O node levels the beam by itself; ham stays up, idle)

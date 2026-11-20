@@ -42,11 +42,31 @@ static int jnum(char *p, int cap, double v, int prec)
     return isfinite(v) ? snprintf(p, cap, "%.*f", prec, v) : snprintf(p, cap, "null");
 }
 
+/* copy a string from shared memory into JSON-safe printable ASCII (no quotes, backslashes or controls) */
+static void jstr(char *dst, size_t cap, const char *src)
+{
+    size_t k = 0;
+    for (size_t i = 0; i < cap - 1 && src[i]; i++) {
+        char c = src[i];
+        dst[k++] = (c < 32 || c > 126 || c == '"' || c == '\\') ? ' ' : c;
+    }
+    dst[k] = 0;
+}
+
 static size_t build_state(void)
 {
     char *p = out; int cap = sizeof out, n = 0;
 #define ADD(...) do { n += snprintf(p + n, n < cap ? cap - n : 0, __VA_ARGS__); } while (0)
     ADD("{\"hz\":%.0f,\"half_len\":%.3f,\"theta_max\":%.3f,\"backend\":\"%s\",", shm->hz, shm->half_len, shm->theta_max, shm->backend);
+    {   /* serial backend: calibration, link and node identity; demo caption (all strings sanitised for JSON) */
+        char cal[sizeof shm->calibrated_at], brd[sizeof shm->node_board], capt[sizeof shm->caption];
+        jstr(cal, sizeof cal, shm->calibrated_at); jstr(brd, sizeof brd, shm->node_board);
+        uint32_t c0 = atomic_load(&shm->caption_seq);
+        jstr(capt, sizeof capt, shm->caption);
+        if ((c0 & 1) || atomic_load(&shm->caption_seq) != c0) capt[0] = 0;      /* being rewritten: show nothing this frame */
+        ADD("\"calibrated_at\":\"%s\",\"node_link\":%u,\"node_proto\":%u,\"node_emulated\":%u,\"node_board\":\"%s\",\"caption\":\"%s\",",
+            cal, atomic_load(&shm->node_link), atomic_load(&shm->node_proto), atomic_load(&shm->node_emulated), brd, capt);
+    }
     ADD("\"mode\":\"%s\",\"reason\":\"%s\",\"guard\":%u,\"quarantined\":%u,\"fault\":\"%s\",",
         rx_mode_name[atomic_load(&shm->mode) % 3], rx_reason_name[atomic_load(&shm->reason) % RX_R_COUNT],
         atomic_load(&shm->guard_enabled), atomic_load(&shm->quarantined), rx_fault_name[atomic_load(&shm->fault) % RX_F_COUNT]);

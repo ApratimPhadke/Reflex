@@ -1,0 +1,20 @@
+== command: PI=qnxpi scripts/install-autostart.sh   (then: ssh qnxpi 'sudo -n shutdown -S reboot')
+== after the reboot (clock not yet NTP-synced, hence 1970):
+CPU:AARCH64 Release:8.0.0  FreeMem:3446MB/4032MB BootTime:Nov 20 07:39:39 UTC 2026
+crw-rw-rw-  1 root root 11,   1 1970-01-01 00:00 /dev/serusb1
+-- /dev/shmem/reflex_startup.log
+reflex_startup: Thu Jan  1 00:00:10 UTC 1970
+devc-serusb started
+-- last P lines
+P 28
+P 29
+-- post_startup.sh vs backup
+--- /system/etc/startup/post_startup.sh.reflex-backup-20261120-073913	2026-09-02 21:24:22.000000000 +0000
++++ /system/etc/startup/post_startup.sh	2026-11-20 07:39:15.000000000 +0000
+@@ -232,4 +232,6 @@
+ 
+ echo Process count:`pidin arg | wc -l`
+ 
++# reflex: USB serial + optional demo (scripts/install-autostart.sh)
++[ -x /system/etc/startup/reflex_startup.sh ] && /system/etc/startup/reflex_startup.sh &
+ exit 0

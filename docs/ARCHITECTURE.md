@@ -85,6 +85,30 @@ The learning curve shown on the dashboard combines the pilot's self-reported cos
 - **Resource manager.** `/dev/reflex` makes the guardian scriptable from the shell with `cat` and `echo`. It is a separate process reading shared memory, so killing it has no effect on control.
 - **HAM.** Restarting the guardian is delegated to the component QNX provides for exactly that.
 
+## I/O node link: protocol v2 and `reflex.conf`
+
+The Black Pill is deliberately dumb: it reports the **raw** sensor distance and applies a **raw** servo pulse. Every conversion to metres and radians happens on the Pi, from a calibration file the `rxcal` wizard writes, so calibrating a rig never means editing firmware or reflashing. Parser and formatter: `src/core/rx_link.c` (pure, fuzzed by `rx_linktest`).
+
+| Direction | Line | Meaning |
+|---|---|---|
+| node → host | `M <raw_mm>` / `M !` | raw distance 0..2000 mm, 50 Hz; `!` = no valid reading |
+| | `I reflex_io <proto> <board> <emulated>` | identity, on reset and on `?` |
+| | `T <theta_mrad>` | emulated boards only: true beam angle (stands in for the inclinometer when `rxcal` is tested; never used by the guardian) |
+| | `# …` | comment |
+| host → node | `S <pulse_us>` | servo pulse; the node clamps it to its compile-time 1000..2000 µs and parks the servo at the level pulse if none arrives for 150 ms |
+| | `L <pulse_us>` | level pulse for that watchdog; written to flash only on change and only while parked (an STM32 sector erase stalls the CPU) |
+| | `?` | request the `I` line |
+| | `E pin <mm>` / `E free` / `E remove` | emulator only: place the simulated ball (lets `rxcal --auto` run without a person) |
+
+A protocol-v1 line (`P …`) is recognised only so the guardian can log "firmware speaks protocol v1: reflash it". On every link-up the guardian sends `L <level_us>` and `?`.
+
+`reflex.conf` (`src/core/rx_conf.h`) is `key = value` text with ten required keys: `level_us`, `us_per_mrad`, `servo_dir`, `center_mm`, `sensor_dir`, `range_min_mm`, `range_max_mm`, `half_len_m`, `calibrated_at`, `board`. The serial backend converts with
+
+- position: `x = sensor_dir · (raw − center_mm) / 1000` m, valid only inside `[range_min_mm, range_max_mm]`;
+- command: `pulse = level_us + servo_dir · u · 1000 · us_per_mrad` µs, after clamping `u` to the kernel's `theta_max`, then to 1000..2000 µs.
+
+The parser rejects a missing, unknown or duplicated key and any value out of range, and `--backend serial` refuses to start without a valid file (`--uncalibrated` for debugging). `half_len_m` may only shorten the kernel's beam (0.10..0.20 m), never lengthen it. Unit tests: `rx_linktest`; the wizard end to end against a fake rig with a deliberately wrong hidden calibration: `make test-cal`.
+
 ## Telemetry
 
 The guardian never prints from its control loop: a console write can block for milliseconds. Everything it has to say goes into a wait-free event log in shared memory (`rxctl events`, dashboard, `cat /dev/reflex`). `rxctl incidents <dir>` is a flight recorder that saves one second before and after every intervention.
