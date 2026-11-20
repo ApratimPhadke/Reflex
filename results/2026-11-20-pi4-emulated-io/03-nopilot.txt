@@ -1,0 +1,20 @@
+reflex            v4  backend=serial  rate=50Hz
+mode              SAFE (no-pilot)
+ball              x=+76.7mm v=+0.005m/s setpoint=+80mm  margin=90.3mm
+command           pilot=+nanrad  actuator=-0.0010rad
+ticks             751
+wake latency      max=24.0us  deadline-misses=0
+guardian exec     max=107.5us
+interventions     0 total
+pilot             pid=0 present=0 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000
+---
+   15.04s ago  tick 0         guardian started [1]
+   15.04s ago  tick 0         I/O node link up [3]
+[guardian] mlockall (continuing): Operation not permitted
+[guardian] pid 4354092  qnx-msgpass  50 Hz  plant=serial  prio=50  pilot=(none)
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+[guardian] stopped

@@ -1,0 +1,1 @@
+QNX qnxpi 8.0.0 2026/06/05-16:21:14EDT RaspberryPi4B aarch64le

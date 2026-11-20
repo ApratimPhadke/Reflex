@@ -1,0 +1,40 @@
+   45.44s ago  tick 9100      AI back in control
+   42.28s ago  tick 9258      guardian took over (envelope)
+   41.42s ago  tick 9301      AI back in control
+   38.24s ago  tick 9460      pilot killed: 3 unsafe commands [4673583]
+   38.24s ago  tick 9460      guardian took over (envelope)
+   38.22s ago  tick 9461      pilot died [4673583]
+   38.00s ago  tick 9472      pilot spawned [4677679]
+   37.00s ago  tick 0         BALL LOST [199]
+   37.00s ago  tick 9522      sensor lost
+   35.38s ago  tick 0         BALL LOST [198]
+   35.38s ago  tick 9603      sensor lost
+   33.76s ago  tick 0         BALL LOST [195]
+   33.76s ago  tick 9684      sensor lost
+   31.50s ago  tick 9797      AI back in control
+   30.08s ago  tick 9868      guardian took over (envelope)
+   29.28s ago  tick 9908      AI back in control
+   26.12s ago  tick 10066     guardian took over (envelope)
+   25.20s ago  tick 10112     AI back in control
+   22.16s ago  tick 10264     pilot killed: 3 unsafe commands [4677679]
+   22.16s ago  tick 10264     guardian took over (envelope)
+   22.14s ago  tick 10265     pilot died [4677679]
+   21.92s ago  tick 10276     pilot spawned [4681775]
+   21.22s ago  tick 10311     AI back in control
+   20.56s ago  tick 10344     guardian took over (envelope)
+   19.48s ago  tick 10398     AI back in control
+   18.38s ago  tick 10453     guardian took over (envelope)
+   17.52s ago  tick 10496     AI back in control
+   14.06s ago  tick 10669     pilot killed: 3 unsafe commands [4681775]
+   14.06s ago  tick 10669     guardian took over (envelope)
+   14.04s ago  tick 10670     pilot died [4681775]
+   13.82s ago  tick 10681     pilot spawned [4685871]
+   13.26s ago  tick 10709     AI back in control
+   10.02s ago  tick 10871     guardian took over (envelope)
+    9.12s ago  tick 10916     AI back in control
+    6.04s ago  tick 11070     guardian took over (envelope)
+    4.62s ago  tick 0         BALL LOST [-201]
+    4.62s ago  tick 11141     sensor lost
+    2.88s ago  tick 0         BALL LOST [198]
+    2.88s ago  tick 11228     sensor lost
+    0.86s ago  tick 11329     AI back in control

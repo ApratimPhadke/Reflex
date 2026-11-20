@@ -120,6 +120,12 @@ static int ser_open_dev(const char *dev)
     int fd = open(dev, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) return -1;
     if (ser_configure(fd) != 0) { close(fd); return -1; }
+    /* Drop whatever the driver queued while nobody was reading. QNX devc-serusb keeps reading the
+     * node while the port is closed and holds about 2 KB, keeping the OLDEST data when full
+     * (measured 2026-11-20 on the Pi 4: 370 lines, about 7 s old, after 30 s unread). Without this the
+     * first tick acts on a stale position. After the flush only ~5 lines remain (results/2026-11-20-pi4-emulated-io/).
+     * Fails harmlessly on a FIFO in tests. */
+    (void)tcflush(fd, TCIFLUSH);
     return fd;
 }
 
