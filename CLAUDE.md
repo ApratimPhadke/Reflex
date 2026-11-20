@@ -21,6 +21,7 @@ make doctor [PI=...]                   # host + target readiness check
 PI=qnxuser@<ip> make deploy            # build for QNX and copy to ~/reflex on the target
 make fw / make flash [EMULATE=1]       # firmware via arduino-cli + dfu-util (BOARD=BLACKPILL_F401CC default)
 python3 tools/train_policy.py          # retrain the simulator pilot (numpy from apt)
+python3 tools/train_policy.py --hardware   # retrain the serial-backend pilot (src/core/policy_weights_hw.h)
 ```
 
 ## Map

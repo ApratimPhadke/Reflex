@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "rx_learner.h"
-#include "policy_weights.h"
 
 #define L_MAGIC 0x524c5231u
 #ifndef LR0
@@ -44,19 +43,19 @@ static void new_direction(rx_learner_t *L)
     L->phase = 0;
 }
 
-void rx_learner_init(rx_learner_t *L, uint64_t seed, int from_pretrained)
+void rx_learner_init(rx_learner_t *L, uint64_t seed, const rx_net_t *pretrained)
 {
     memset(L, 0, sizeof *L);
     L->rng = seed ? seed : 0x243F6A8885A308D3ull;
     L->sigma = 0.12f; L->lr = LR0;
     L->cost_avg = -1.0f; L->best_cost = -1.0f;
     float *W1 = L->mean, *b1 = W1 + RX_L_H * RX_L_IN, *w2 = b1 + RX_L_H;
-    if (from_pretrained && RX_POL_H == RX_L_H && RX_POL_IN == RX_L_IN) {
+    if (pretrained && RX_NET_H == RX_L_H && RX_NET_IN == RX_L_IN) {
         for (int j = 0; j < RX_L_H; j++) {
-            for (int i = 0; i < RX_L_IN; i++) W1[j * RX_L_IN + i] = rx_pol_w1[j][i];
-            b1[j] = rx_pol_b1[j]; w2[j] = rx_pol_w2[j];
+            for (int i = 0; i < RX_L_IN; i++) W1[j * RX_L_IN + i] = pretrained->w1[j][i];
+            b1[j] = pretrained->b1[j]; w2[j] = pretrained->w2[j];
         }
-        w2[RX_L_H] = RX_POL_B2;
+        w2[RX_L_H] = pretrained->b2;
         L->sigma = 0.04f; L->lr = LR0 * 0.4f;
     } else {
         /* from scratch: random hidden layer, silent output layer -> the network starts by doing nothing */

@@ -94,9 +94,10 @@ $(OUT)/rxham: src/qnx/rxham.c | $(OUT)
 src/tools/dash_html.h: web/dashboard.html tools/embed.py
 	python3 tools/embed.py web/dashboard.html $@
 
-# retrain the neural pilot (needs numpy)
+# retrain the neural pilots (needs numpy): simulator weights and serial-backend (hardware) weights
 policy:
 	python3 tools/train_policy.py
+	python3 tools/train_policy.py --hardware
 
 test: $(OUT)/rx_simtest $(OUT)/rx_linktest
 	$(OUT)/rx_linktest

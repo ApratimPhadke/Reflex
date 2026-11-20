@@ -10,6 +10,14 @@ in training guarantees it stays inside the safe envelope. That guarantee is the
 guardian's job.
 
 usage: python3 tools/train_policy.py [--iters 40] [--out src/core/policy_weights.h]
+       python3 tools/train_policy.py --hardware     (-> src/core/policy_weights_hw.h)
+
+--hardware trains the pilot the serial backend flies: 50 Hz and rx_cfg_hardware()
+(longer actuator delay, slower estimator), a noisy sensor, one tick of pilot latency,
+and the guardian itself in the loop: every command is judged with the same one-step
+envelope check as rx_guard_step(), a vetoed pilot is replaced by rx_safe_u() for the
+hold time, and each veto costs a lot. The pilot is still untrusted; this only makes
+it a pilot the guardian rarely has to overrule on the real rig.
 """
 import argparse
 import numpy as np
@@ -17,6 +25,9 @@ import numpy as np
 # must match rx_cfg_default() in src/core/rx_core.c
 HALF_LEN, EDGE, K_ACC, TH_MAX, SLEW = 0.20, 0.010, 5.886, 0.21, 6.0
 T_DELAY, ETA, EST_TAU = 0.08, 0.7, 0.03
+WN, ZETA, HOLD_S, INNER = 2.5, 1.0, 0.5, 0.03
+# must match rx_cfg_hardware()
+HW_HZ, HW_T_DELAY, HW_EST_TAU = 50.0, 0.12, 0.08
 NI, NH = 3, 12
 
 
@@ -98,9 +109,103 @@ def rollout(w, rng, episodes=24, hz=250.0, secs=6.0):
     return cost / n
 
 
-def clone_pd(rng, steps=4000, lr=0.02):
-    """Fit the MLP to an aggressive PD law so CEM starts from something that balances."""
-    wn, zeta = 5.0, 0.85
+def margin_cfg(x, v, t_delay):
+    """rx_margin() for an arbitrary t_delay. Returns (min margin, right margin, left margin)."""
+    a_max = K_ACC * np.sin(TH_MAX)
+
+    def side(s):
+        xs, vs = s * x, s * v
+        xd = xs + vs * t_delay + 0.5 * a_max * t_delay ** 2
+        vd = vs + a_max * t_delay
+        reach = np.maximum(xs, xd)
+        reach = np.where(vd > 0, np.maximum(reach, xd + vd ** 2 / (2 * ETA * a_max)), reach)
+        return (HALF_LEN - EDGE) - reach
+
+    r, l = side(1.0), side(-1.0)
+    return np.minimum(r, l), r, l
+
+
+def safe_u(x, v, sp, t_delay):
+    """rx_safe_u(): PD fallback, full push away from an end when close to the limit."""
+    _, r, l = margin_cfg(x, v, t_delay)
+    sm = np.sin(TH_MAX)
+    u = np.arcsin(np.clip((WN * WN * (sp - x) - 2 * ZETA * WN * v) / K_ACC, -sm, sm))
+    near = (r < 0.01) | (l < 0.01)
+    return np.where(near, np.where(r < l, -TH_MAX, TH_MAX), u)
+
+
+def rollout_hw(w, rng, episodes=24, secs=10.0, substeps=20, stats=False):
+    """Hardware-config rollout with the guardian in the loop. Returns cost per population member
+    (and, with stats=True, vetoes per minute and balls lost per member)."""
+    P = w.shape[0]
+    hz = HW_HZ
+    dt = 1.0 / hz
+    n = int(secs * hz)
+    hold_ticks = int(HOLD_S * hz)
+    x = np.tile(rng.uniform(-0.10, 0.10, (1, episodes)), (P, 1))
+    v = np.tile(rng.uniform(-0.05, 0.05, (1, episodes)), (P, 1))
+    th = np.zeros((P, episodes))
+    k_scale = np.tile(rng.uniform(0.85, 1.15, (1, episodes)), (P, 1))     # domain randomisation
+    slew = np.tile(rng.uniform(4.0, 8.0, (1, episodes)), (P, 1))
+    noise = np.tile(rng.uniform(0.001, 0.003, (1, episodes)), (P, 1))     # sensor noise, std in m
+    # setpoints: half the episodes fly the demo's +/-80 mm square wave (4 s half period, random
+    # phase), the other half random targets every 1.5-3 s
+    square = rng.random(episodes) < 0.5
+    phase = rng.integers(0, int(4 * hz), episodes)
+    switch = rng.integers(int(1.5 * hz), int(3.0 * hz), episodes)
+    sp_rand = rng.uniform(-0.10, 0.10, episodes)
+    thf = np.exp(-dt / HW_EST_TAU)
+    alpha, beta = 1 - thf * thf, (1 - thf) ** 2
+    xe, ve = x.copy(), np.zeros_like(x)
+    u_prop = np.zeros_like(x)                  # the pilot answers one tick late
+    ai = np.zeros((P, episodes), bool)          # guardian mode: the pilot has to earn control
+    hold = np.full((P, episodes), hold_ticks)
+    dead = np.zeros((P, episodes), bool)
+    cost = np.zeros(P)
+    vetoes = np.zeros(P)
+    hl = HALF_LEN - EDGE
+    for t in range(n):
+        flip = (t % switch) == (switch - 1)
+        sp_rand = np.where(flip, rng.uniform(-0.10, 0.10, episodes), sp_rand)
+        sq = np.where(((t + phase) // int(4 * hz)) % 2 == 0, 0.08, -0.08)
+        sp = np.broadcast_to(np.where(square, sq, sp_rand)[None, :], x.shape)
+        # sensor + guardian estimator
+        z = x + noise * rng.normal(size=(1, episodes))
+        xp = xe + ve * dt
+        r = z - xp
+        xe = xp + alpha * r
+        ve = ve + beta * r / dt
+        # guardian: one-step envelope check of the proposal (rx_guard_step, hardware cfg)
+        h = max(dt, 0.02)
+        a = K_ACC * np.sin(u_prop)
+        veto = margin_cfg(xe + ve * h + 0.5 * a * h * h, ve + a * h, HW_T_DELAY)[0] <= 0
+        vetoes += (veto & ai & ~dead).sum(axis=1) / episodes
+        m_now = margin_cfg(xe, ve, HW_T_DELAY)[0]
+        back = ~veto & ~ai & (hold == 0) & (m_now >= INNER)
+        hold = np.where(veto, hold_ticks, np.where(~ai & (hold > 0), hold - 1, hold))
+        newly_safe = veto & ai
+        ai = np.where(veto, False, ai | back)
+        u = np.where(ai, u_prop, safe_u(xe, ve, sp, HW_T_DELAY))
+        for _ in range(substeps):
+            hs = dt / substeps
+            th += np.clip(u - th, -slew * hs, slew * hs)
+            acc = K_ACC * k_scale * np.sin(th) - 0.15 * v
+            v += acc * hs
+            x += v * hs
+        dead |= np.abs(x) > HALF_LEN
+        # the pilot sees this tick's estimate and answers for the next tick
+        u_prop = policy(w, xe, ve, sp)
+        c = (x - sp) ** 2 * 100 + 0.05 * u_prop ** 2 + 0.5 * (~ai) + 40.0 * newly_safe
+        c = c + 4.0 * np.clip(0.035 - margin_cfg(x, v, HW_T_DELAY)[0], 0, None) * 100
+        cost += np.where(dead, 50.0, c).mean(axis=1)
+    if stats:
+        return cost / n, vetoes / (secs / 60.0), dead.sum(axis=1)
+    return cost / n
+
+
+def clone_pd(rng, steps=4000, lr=0.02, wn=5.0, zeta=0.85):
+    """Fit the MLP to a PD law so CEM starts from something that balances
+    (aggressive by default; --hardware starts from a gentler one)."""
     w = rng.normal(0, 0.3, (1, NPARAM))
     m = np.zeros_like(w); s = np.zeros_like(w)
     for it in range(1, steps + 1):
@@ -122,21 +227,45 @@ def clone_pd(rng, steps=4000, lr=0.02):
     return w[0]
 
 
-def export(w, path, score):
+def export(w, path, score, prefix="rx_pol", guard="RX_POLICY_WEIGHTS_H", note="behaviour-cloned from PD then tuned with CEM"):
     W1, b1, w2, b2 = unpack(w[None, :])
     fl = lambda a: ", ".join(f"{float(q):.7g}f" for q in a)
+    P = prefix.upper()
     with open(path, "w") as f:
         f.write("/* GENERATED by tools/train_policy.py - do not edit by hand.\n")
-        f.write(f" * 3-{NH}-1 tanh MLP, behaviour-cloned from PD then tuned with CEM. eval cost {score:.4f} */\n")
-        f.write("#ifndef RX_POLICY_WEIGHTS_H\n#define RX_POLICY_WEIGHTS_H\n")
-        f.write(f"#define RX_POL_IN {NI}\n#define RX_POL_H {NH}\n")
-        f.write(f"static const float rx_pol_w1[RX_POL_H][RX_POL_IN] = {{\n")
+        f.write(f" * 3-{NH}-1 tanh MLP, {note}. eval cost {score:.4f} */\n")
+        f.write(f"#ifndef {guard}\n#define {guard}\n")
+        f.write(f"#define {P}_IN {NI}\n#define {P}_H {NH}\n")
+        f.write(f"static const float {prefix}_w1[{P}_H][{P}_IN] = {{\n")
         for j in range(NH):
             f.write(f"    {{ {fl(W1[0, j])} }},\n")
         f.write("};\n")
-        f.write(f"static const float rx_pol_b1[RX_POL_H] = {{ {fl(b1[0])} }};\n")
-        f.write(f"static const float rx_pol_w2[RX_POL_H] = {{ {fl(w2[0])} }};\n")
-        f.write(f"#define RX_POL_B2 {float(b2[0]):.7g}f\n#endif\n")
+        f.write(f"static const float {prefix}_b1[{P}_H] = {{ {fl(b1[0])} }};\n")
+        f.write(f"static const float {prefix}_w2[{P}_H] = {{ {fl(w2[0])} }};\n")
+        f.write(f"#define {P}_B2 {float(b2[0]):.7g}f\n#endif\n")
+
+
+def train_hw(a):
+    rng = np.random.default_rng(a.seed)
+    mean = clone_pd(rng, wn=3.0, zeta=1.0)             # close to the fallback law: starts inside the envelope
+    c, vpm, lost = rollout_hw(mean[None, :], np.random.default_rng(1), stats=True)
+    print(f"cloned PD      cost {c[0]:.4f}  vetoes/min {vpm[0]:.2f}  lost {lost[0]}")
+    sigma = np.full(NPARAM, 0.06)
+    for it in range(a.iters):
+        pop = mean + sigma * rng.normal(size=(a.pop, NPARAM))
+        pop[0] = mean
+        cost = rollout_hw(pop, np.random.default_rng(1000 + it))
+        elite = pop[np.argsort(cost)[: a.pop // 6]]
+        mean = 0.5 * mean + 0.5 * elite.mean(0)
+        sigma = 0.7 * sigma + 0.3 * elite.std(0) + 0.002
+        if it % 5 == 0 or it == a.iters - 1:
+            print(f"iter {it:3d}  best {cost.min():.4f}  mean-of-elite {np.sort(cost)[: a.pop // 6].mean():.4f}")
+    c, vpm, lost = rollout_hw(mean[None, :], np.random.default_rng(1), episodes=64, secs=60.0, stats=True)
+    print(f"final          cost {c[0]:.4f}  vetoes/min {vpm[0]:.2f}  lost {lost[0]} (64 episodes x 60 s, held-out seed)")
+    out = a.out or "src/core/policy_weights_hw.h"
+    export(mean, out, c[0], prefix="rx_polhw", guard="RX_POLICY_WEIGHTS_HW_H",
+           note=f"hardware config at {HW_HZ:.0f} Hz with the guardian in the loop; vetoes/min {vpm[0]:.2f}")
+    print("wrote", out)
 
 
 def main():
@@ -144,8 +273,12 @@ def main():
     ap.add_argument("--iters", type=int, default=40)
     ap.add_argument("--pop", type=int, default=48)
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--out", default="src/core/policy_weights.h")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--hardware", action="store_true", help="train for the serial backend (50 Hz, rx_cfg_hardware)")
     a = ap.parse_args()
+    if a.hardware:
+        return train_hw(a)
+    a.out = a.out or "src/core/policy_weights.h"
     rng = np.random.default_rng(a.seed)
 
     mean = clone_pd(rng)

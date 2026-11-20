@@ -1,0 +1,16 @@
+cloned PD      cost 0.2311  vetoes/min 0.00  lost 0
+iter   0  best 0.2070  mean-of-elite 0.2176
+iter   5  best 0.1645  mean-of-elite 0.1659
+iter  10  best 0.2043  mean-of-elite 0.2085
+iter  15  best 0.1782  mean-of-elite 0.1813
+iter  20  best 0.1769  mean-of-elite 0.1781
+iter  25  best 0.2066  mean-of-elite 0.2083
+iter  30  best 0.2403  mean-of-elite 0.2421
+iter  35  best 0.2168  mean-of-elite 0.2189
+iter  39  best 0.1997  mean-of-elite 0.2024
+final          cost 0.1701  vetoes/min 0.00  lost 0 (64 episodes x 60 s, held-out seed)
+wrote /tmp/claude-1000/-home-abc-A-I-M-hackathonproject-v4-reflex/16459c91-87c6-4cb8-b34d-e7f46c16b15f/scratchpad/pw_hw_repro.h
+hw weights reproducible
+policy_weights.h: cost 2.0856  vetoes/min 11.38  episodes lost 0/64
+hardware pilot               cost 0.1701  vetoes/min 0.00  lost 0/64
+fallback law as the pilot    cost 0.2187  vetoes/min 0.00  lost 0/64
