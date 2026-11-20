@@ -4,7 +4,7 @@ This guide takes you from a bag of parts to a ball balancing under the Reflex gu
 
 Time: about 2 evenings for the mechanics, 1 for the electronics and firmware, 1-3 for calibration and tuning.
 
-Status: the firmware compiles for the Black Pill F401CC (`make fw`, STM32duino core 3.1.0, 2026-11-20); it has not yet run on a board, and the rig described here has not been built. The numbers below come from geometry and datasheet values, so treat them as starting points that you confirm with a ruler and the serial monitor.
+Status: the firmware compiles for the Black Pill F401CC (`make fw`, STM32duino core 3.1.0, 2026-11-20). The emulator build (`EMULATE=1`) has run on the project's board against the Linux guardian over USB CDC (`results/2026-11-20-host-blackpill-emulate/`); the sensor/servo build has not yet run on a board, and the rig described here has not been built. The numbers below come from geometry and datasheet values, so treat them as starting points that you confirm with a ruler and the serial monitor.
 
 ---
 
@@ -246,6 +246,8 @@ Read the chip on the Black Pill: **STM32F411CEU6** (most common) or **STM32F401C
 | STM32F401CCU6 | `BLACKPILL_F401CC` (default: the board this project uses) |
 | STM32F401CEU6 | `BLACKPILL_F401CE` |
 
+The marking can lie. The project's board is sold and marked as F401CCU6, but over SWD it reads IDCODE `0x10006431` (DEV_ID 0x431 = **STM32F411**, rev A) with a flash-size register of 256 KB. If you have an ST-LINK, check yours with `st-info --probe` (and `st-flash read id.bin 0xE0042000 4` for the IDCODE). When the flash-size register says 256 KB, build `BLACKPILL_F401CC` whatever the chip ID says: it assumes 256 KB flash and 64 KB RAM, which is a safe subset of an F411, while `BLACKPILL_F411CE` assumes 512 KB of flash the chip does not report.
+
 ### 5.2 Build
 
 ```sh
@@ -269,6 +271,15 @@ If it fails with an unknown board option, the STM32 core renamed a menu value. R
 5. Tap **NRST** if it does not restart by itself.
 
 If DFU mode is not detected: try another cable (charge-only cables are common), a USB 2.0 port, or hold BOOT0 for a full second while tapping NRST. Some F411 boards only enter DFU reliably with the board warm or after a few tries; that is a known quirk of the ROM bootloader.
+
+**Alternative: ST-LINK over SWD (no buttons).** Wire an ST-LINK/V2 to the Black Pill's 4-pin SWD header (SWDIO, SWCLK, GND, 3.3V; NRST is not needed) and run
+
+```sh
+st-flash read backup.bin 0x08000000 0x40000                                   # optional: keep the old image
+st-flash --reset write build/firmware-emulate/reflex_io.ino.bin 0x08000000    # or build/firmware/...
+```
+
+`st-flash` verifies the write and resets the chip in software. Before plugging the USB-C cable in for the serial port, unplug the ST-LINK or pull its 3.3V wire, so the board is not powered from two sources.
 
 **Check:** `lsusb | grep 0483:5740` shows the board as a serial device, `/dev/ttyACM0` exists, and the LED blinks fast (nobody is sending commands yet, so the watchdog is active).
 
