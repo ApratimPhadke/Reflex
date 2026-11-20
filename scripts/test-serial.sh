@@ -4,8 +4,9 @@
 #
 #   make test-serial                 (or: scripts/test-serial.sh [outdir])
 #
-# 1. fake I/O node on a pty, 2% of its lines replaced by garbage
-# 2. guardian --backend serial with the frozen pilot, full fault campaign
+# 0. scripts/test-cal.sh: rxcal --auto recovers the fake rig's wrong-in-every-way calibration
+# 1. fake I/O node on a pty with that hidden calibration, 2% of its lines replaced by garbage
+# 2. guardian --backend serial --conf <the wizard's reflex.conf>, frozen pilot, full fault campaign
 #    pass: ball kept in 8/8 guarded runs; the guardian's ball-lost count equals the fake
 #    node's ground truth
 # 3. unplug the "cable" for 1 s: the guardian logs link down/up, keeps running, and AI is back
@@ -33,13 +34,21 @@ trap cleanup EXIT
 
 make -s all >/dev/null || { echo "build failed"; exit 1; }
 if pgrep -x reflex-guardian >/dev/null; then echo "a reflex-guardian is already running on this host; stop it first"; exit 1; fi
+# the same hidden calibration as scripts/test-cal.sh, which writes the reflex.conf we fly with
+FAKE_CAL="--level-us 1530 --us-per-mrad 2.1 --servo-dir -1 --sensor-dir -1 --center-mm 247 --noball-mm 560"
+say "calibrate the fake rig with rxcal (scripts/test-cal.sh)"
+./scripts/test-cal.sh "$OUT/cal" > "$OUT/cal.log" 2>&1; calrc=$?
+grep -E 'PASS|FAIL' "$OUT/cal.log" | grep -v TEST
+[ "$calrc" = 0 ] && ok "calibration test passed" || bad "calibration test failed (see $OUT/cal.log)"
+if [ -f "$OUT/cal/reflex.conf" ]; then ok "reflex.conf written by rxcal"; else bad "rxcal wrote no reflex.conf"; echo "SERIALTEST FAILED"; exit 1; fi
 
 say "fake I/O node + guardian (serial, 50 Hz, frozen pilot)"
-python3 tools/fake_io_node.py --link "$LINK" --status "$OUT/fake.json" --garbage 0.02 > "$OUT/fake.log" 2>&1 &
+# shellcheck disable=SC2086
+python3 tools/fake_io_node.py --link "$LINK" --status "$OUT/fake.json" --garbage 0.02 $FAKE_CAL > "$OUT/fake.log" 2>&1 &
 FPID=$!
 for _ in $(seq 50); do [ -e "$LINK" ] && break; sleep 0.1; done
 [ -e "$LINK" ] || { cat "$OUT/fake.log"; echo "fake node did not start"; exit 1; }
-"$B"/reflex-guardian --backend serial --dev "$LINK" --fresh > "$OUT/guardian.log" 2>&1 &
+"$B"/reflex-guardian --backend serial --dev "$LINK" --conf "$OUT/cal/reflex.conf" --fresh > "$OUT/guardian.log" 2>&1 &
 GPID=$!
 ai=0
 for _ in $(seq 100); do

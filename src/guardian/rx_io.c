@@ -100,7 +100,9 @@ typedef struct {
     int         helper_ok;
     int         up;             /* loop's view of the link, for up/down events */
     rx_link_t   link;
-    uint64_t    last_ns;        /* time of the newest "P" line */
+    rx_conf_t   conf;           /* rig calibration: raw mm / pulse <-> m / rad */
+    int         told_info, told_v1;
+    uint64_t    last_ns;        /* time of the newest "M" line */
     int         last_valid;     /* newest sample had a position */
     float       last_x;
 } ser_t;
@@ -162,7 +164,18 @@ static float ser_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
         rx_link_init(&s->link);
         s->last_ns = now;                /* give the node one stale window to start talking */
         s->last_valid = 0;
+        s->told_info = s->told_v1 = 0;
+        atomic_store(&s->shm->node_proto, 0);
+        atomic_store(&s->shm->node_link, 1);
         rx_event_push(s->shm, 0, RX_E_LINK_UP, fd);
+        /* tell the node our level pulse (it keeps it in flash for its watchdog) and ask who it is;
+         * non-blocking writes, dropped if the driver is full (the node re-levels on its own anyway) */
+        char b[48];
+        int n = rx_link_cmd_level(b, sizeof b, s->conf.level_us, RX_PULSE_MIN, RX_PULSE_MAX);
+        n += rx_link_cmd_query(b + n, sizeof b - (size_t)n);
+        if (write(fd, b, (size_t)n) < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            ser_link_down(s, fd); fd = -1;
+        }
     }
     if (fd >= 0) {
         char buf[256];
@@ -172,17 +185,27 @@ static float ser_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
                 if (rx_link_feed(&s->link, buf, (size_t)n) > 0) {
                     *fresh = 1;
                     s->last_ns = now;
-                    int was_valid = s->last_valid;
-                    s->last_valid = s->link.valid;
-                    if (s->link.valid) s->last_x = s->link.mm * 1e-3f;
+                    int was_valid = s->last_valid, in_window = 0;
+                    float x = s->link.valid ? rx_conf_position(&s->conf, s->link.raw_mm, &in_window) : NAN;
+                    s->last_valid = s->link.valid && in_window;
+                    if (s->last_valid) s->last_x = x;
                     /* The node cannot tell "fell off the end" from "sensor dropout". If the ball
                      * was last seen within 4 cm of an end and then vanished, count it as lost.
                      * Evaluation only: the guardian's decisions never use this. */
-                    if (was_valid && !s->link.valid && fabsf(s->last_x) > s->cfg->half_len - 0.04f) {
+                    if (was_valid && !s->last_valid && fabsf(s->last_x) > s->cfg->half_len - 0.04f) {
                         atomic_fetch_add(&s->shm->balls_lost, 1);
                         rx_event_push(s->shm, 0, RX_E_BALL_LOST, (int32_t)lrintf(s->last_x * 1000.0f));
                     }
                 }
+                if (s->link.have_info && !s->told_info) {          /* publish the node's identity once */
+                    s->told_info = 1;
+                    memcpy(s->shm->node_board, s->link.board, sizeof s->shm->node_board);
+                    s->shm->node_board[sizeof s->shm->node_board - 1] = 0;
+                    atomic_store(&s->shm->node_emulated, (uint32_t)s->link.emulated);
+                    atomic_store(&s->shm->node_proto, (uint32_t)s->link.proto);
+                    rx_event_push(s->shm, 0, RX_E_NODE_INFO, s->link.proto * 10 + s->link.emulated);
+                }
+                if (s->link.v1_lines && !s->told_v1) { s->told_v1 = 1; rx_event_push(s->shm, 0, RX_E_NODE_OLD, 1); }
                 if ((size_t)n < sizeof buf) break;
             } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
                 ser_link_down(s, fd);    /* EOF or I/O error: cable gone, node reset, pty closed */
@@ -193,11 +216,12 @@ static float ser_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
     }
     if (fd < 0 && s->up) {
         s->up = 0;
+        atomic_store(&s->shm->node_link, 0);
         rx_event_push(s->shm, 0, RX_E_LINK_DOWN, 0);
     }
     int stale = fd < 0 || now - s->last_ns > 200000000ull;
     *lost = stale || !s->last_valid;
-    return *lost ? NAN : s->link.mm * 1e-3f;
+    return *lost ? NAN : s->last_x;
 }
 
 static void ser_write(rx_io_t *io, float u)
@@ -206,7 +230,9 @@ static void ser_write(rx_io_t *io, float u)
     int fd = atomic_load(&s->fd);
     if (fd < 0) return;                  /* link down: the node's own watchdog has the beam */
     char b[32];
-    int n = rx_link_cmd(b, sizeof b, u, (int)lrintf(s->cfg->theta_max * 1000.0f));
+    float lim = s->cfg->theta_max;                          /* never ask for more than the kernel allows */
+    if (isfinite(u)) u = u > lim ? lim : (u < -lim ? -lim : u);
+    int n = rx_link_cmd_servo(b, sizeof b, rx_conf_pulse(&s->conf, u), RX_PULSE_MIN, RX_PULSE_MAX);
     ssize_t w = write(fd, b, (size_t)n);
     if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) ser_link_down(s, fd);
 }
@@ -223,12 +249,12 @@ static void ser_close(rx_io_t *io)
     free(s); free(io);
 }
 
-rx_io_t *rx_io_serial_open(const rx_cfg_t *cfg, const char *dev, rx_shm_t *shm)
+rx_io_t *rx_io_serial_open(const rx_cfg_t *cfg, const char *dev, rx_shm_t *shm, const rx_conf_t *conf)
 {
     rx_io_t *io = calloc(1, sizeof *io);
     ser_t *s = calloc(1, sizeof *s);
     if (!io || !s) { free(io); free(s); return NULL; }
-    s->cfg = cfg; s->shm = shm;
+    s->cfg = cfg; s->shm = shm; s->conf = *conf;
     snprintf(s->dev, sizeof s->dev, "%s", dev);
     atomic_store(&s->dead_fd, -1);
     int fd = ser_open_dev(dev);

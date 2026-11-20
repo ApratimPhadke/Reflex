@@ -17,15 +17,15 @@ Status: the firmware compiles for the Black Pill F401CC (`make fw`, STM32duino c
  ┌────────────────┐  USB-C data   ┌───────────────┐  PA8 signal  ┌──────────┐
  │ Raspberry Pi 4 │──────────────▶│  Black Pill   │─────────────▶│  MG996R  │──push-rod──▶ beam
  │ QNX 8.0        │◀──────────────│  (I/O node)   │              └──────────┘
- │ guardian+pilot │  "P <mm>" up  │  firmware:    │  I2C PB6/PB7  ┌──────────┐
- └────────────────┘  "U <mrad>" dn│  reflex_io    │◀─────────────│ VL53L0X  │◀── laser ── ball
+ │ guardian+pilot │  "M <raw>" up │  firmware:    │  I2C PB6/PB7  ┌──────────┐
+ └────────────────┘  "S <us>" down│  reflex_io    │◀─────────────│ VL53L0X  │◀── laser ── ball
         ▲                         └───────────────┘              └──────────┘
         │ Ethernet
      laptop (dashboard in a browser, SSH)
 ```
 
 - The **Pi** runs everything that thinks: the guardian, the AI pilot, the dashboard.
-- The **Black Pill** is a dumb, fast I/O node. It reads the sensor 50 times a second, sends the position up the USB cable, and moves the servo to whatever angle comes back down. If commands stop for 150 ms, it levels the beam by itself.
+- The **Black Pill** is a dumb, fast I/O node. It reads the sensor 50 times a second, sends the raw distance up the USB cable, and sets the servo to whatever pulse comes back down. All calibration lives on the Pi in `reflex.conf` (Part 7). If commands stop for 150 ms, it parks the servo at the stored level pulse by itself.
 - The **servo** has its own power supply. It never draws power from the Black Pill or the Pi.
 - Nothing connects to the Pi's GPIO header in the default setup.
 
@@ -101,7 +101,7 @@ With that geometry the sensor reads the distance to the near surface of the ball
 | +200 mm (far end of travel) | about 460 mm |
 | no ball (sees the far stop at +240) | about 520 mm or a timeout |
 
-These are the defaults now in the firmware (`CENTER_MM = 260`, `RANGE_MIN_MM = 40`, `RANGE_MAX_MM = 495`). You will correct them with real measurements in Part 7.
+These are the starting guesses `rxcal` uses (`center_mm = 260`, `range_min_mm = 40`, `range_max_mm = 495`). It measures the real values in Part 7.
 
 The VL53L0X's field of view is about 25°, so at 40-50 cm its cone is wider than the ball. That is why the sensor height matters and why the walls and stops should stay low. If readings near the far end are noisy, move the sensor 5 mm higher or put a strip of matte black tape on the far stop.
 
@@ -124,7 +124,7 @@ The VL53L0X's field of view is about 25°, so at 40-50 cm its cone is wider than
 - Push-rod attaches to the servo horn **20 mm** from the servo shaft.
 - With the horn horizontal at the servo's centre position, the push-rod must be vertical and the beam level. Adjust the rod length with its nuts until this is true.
 
-Why these numbers: the beam turns by roughly (horn radius ÷ beam lever) × servo angle = 20/60 = 1/3 of the servo angle. The software asks for at most ±0.21 rad (12°) of beam, which is ±36° at the servo: well inside its range, with good resolution. The firmware's `US_PER_MILLIRAD = 1.9` is derived from the same 1/3 ratio and a servo that moves about 90° per 1000 µs. You will measure the real value in Part 7.
+Why these numbers: the beam turns by roughly (horn radius ÷ beam lever) × servo angle = 20/60 = 1/3 of the servo angle. The software asks for at most ±0.21 rad (12°) of beam, which is ±36° at the servo: well inside its range, with good resolution. The starting guess `us_per_mrad = 1.9` is derived from the same 1/3 ratio and a servo that moves about 90° per 1000 µs. `rxcal` measures the real value in Part 7.
 
 ---
 
@@ -146,7 +146,7 @@ Why these numbers: the beam turns by roughly (horn radius ÷ beam lever) × serv
 
 ### 3.3 Servo
 
-1. Before mounting, centre the servo: power it (Part 4) and send `U 0` (Part 6), or use any servo tester. Then fit the metal horn horizontal.
+1. Before mounting, centre the servo: power it (Part 4) and send `S 1500` (Part 6), or use any servo tester. Then fit the metal horn horizontal.
 2. Mount the servo on the base with M3 screws and spacers, so its horn tip sits directly below the beam's link point, 60 mm from the pivot.
 3. Drill a 3 mm hole in the horn 20 mm from the shaft centre (most metal horns already have holes; use the one closest to 20 mm and note the real value).
 4. Fix a small L-bracket (or a block with a 3 mm hole) under the channel 60 mm from the pivot.
@@ -291,61 +291,46 @@ Open a serial console:
 scripts/fw.sh monitor          # picocom at 115200; quit with Ctrl-A then Ctrl-X
 ```
 
-Type commands and press Enter.
+Type commands and press Enter. The firmware speaks protocol v2 (`src/core/rx_link.h`): it reports the **raw** sensor distance and takes a **raw** servo pulse. It knows nothing about calibration.
 
-1. On reset you see `# reflex_io ready`. If you see `VL53L0X NOT FOUND`, check the four sensor wires, especially SDA/SCL swapped.
-2. A stream of `P …` lines appears, 50 per second. Put the ball on the beam: the number changes as you roll it. Remove the ball: `P !` or a large number.
-3. Type `U 0` + Enter. The beam goes level and the LED stops blinking for 150 ms, then blinks again (the watchdog levels the beam because you are not sending commands continuously). That is correct behaviour.
-4. Send `U 100`, then `U -100`. The beam tilts one way, then the other.
+1. On reset you see `I reflex_io 2 BLACKPILL_F401CC 0`. Every 2 s a comment says `# reflex_io v2 sensor=ok`; if it says `VL53L0X NOT FOUND`, check the four sensor wires, especially SDA/SCL swapped.
+2. A stream of `M …` lines appears, 50 per second: the distance from the sensor in mm. Roll the ball: the number changes. Remove the ball: a large number (the far wall) or `M !`.
+3. Type `S 1500` + Enter. The servo moves to 1500 µs and the LED stops blinking for 150 ms, then blinks again: the watchdog parks the servo at the stored level pulse because you are not sending commands continuously. That is correct behaviour.
+4. Send `S 1600`, then `S 1400`. The beam tilts one way, then the other. The node never sends a pulse outside 1000-2000 µs whatever you type.
 
-**Check:** sensor values change smoothly with the ball's position; the servo responds to `U`.
+**Check:** readings change smoothly with the ball's position; the servo responds to `S`.
 
 ---
 
-## Part 7. Calibration
+## Part 7. Calibration with `rxcal`
 
-Change the constants at the top of `reflex_io.ino`, then `make fw && make flash` (DFU mode first), repeat. Write the final values down; they go into your README.
+No constants to edit and nothing to reflash: the wizard measures the rig and writes `reflex.conf` next to the binaries. The guardian's serial backend refuses to start without a valid one.
 
-### 7.1 Level (SERVO_CENTER_US)
+```sh
+cd ~/reflex && ./reflex-demo.sh stop      # rxcal refuses to run while a guardian owns the servo
+./rxcal                                   # on the Pi (/dev/serusb1); on the laptop: build/linux/rxcal --dev /dev/ttyACM0
+```
 
-Type `U 0` + Enter several times in quick succession (paste it ten times in a row). Read the inclinometer on the beam. Adjust `SERVO_CENTER_US` in steps of 10 µs until the beam reads 0.0 ± 0.3°.
+Have the phone inclinometer ready. Before every step that moves the servo the wizard says **KEEP HANDS CLEAR** and waits for Enter. Ctrl-C or `q` at any point stops the servo commands, and the node levels the beam by itself within 150 ms.
 
-### 7.2 Direction (SERVO_DIR, SENSOR_DIR)
+| Step | What you do | What it measures (`reflex.conf` key) |
+|---|---|---|
+| 1 link | nothing | the node's `I` line, ~50 readings/s |
+| 2 level | ball off; Up/Down ±5 µs, Right/Left ±1 µs until the inclinometer reads 0.0 ± 0.3°; Enter | `level_us` |
+| 3 direction | ball near the centre, let go; confirm it rolled | which way the reading moves for a pulse increase |
+| 4 centre | hold the ball still over the pivot mark | `center_mm` (2 s average) |
+| 5 range | ball at the near stop, at the far stop, then off the beam | `range_min_mm`, `range_max_mm`, `half_len_m`; warns if "no ball" is within 30 mm of the far stop (sensor sees the stop: 2.3) |
+| 6 angle scale | ball off; type the inclinometer reading at +200 and −200 mrad (with sign) | `us_per_mrad`, `servo_dir`, and from step 3 `sensor_dir`; warns if the two sides differ by more than 1° (horn not horizontal at level: fix the mechanics, 3.3) |
+| 7 validation | ball near the centre | 20 s closed loop on the verified fallback controller; the ball must stay inside ±150 mm, or nothing is written |
+| 8 write | nothing | `reflex.conf` (the old one is kept as `reflex.conf.bak-<time>`), and the level pulse is stored in the node's flash for its watchdog |
 
-This is the most important step. A wrong sign makes every controller push the ball off the beam.
+`half_len_m` can only make the safety kernel's beam shorter than its 0.20 m default, never longer.
 
-1. Ball near the centre. Send `U 100` several times.
-2. The ball rolls one way. Watch the `P` value:
-   - it **increases**: correct, change nothing;
-   - it **decreases**: set `SENSOR_DIR = -1`.
+To redo the calibration, run `./rxcal` again: it starts from the current file. The format is described in `src/core/rx_conf.h`; editing it by hand works, and the guardian checks every value when it starts (`./reflex-guardian --check-conf`).
 
-Rule: a positive command must make the reported position increase. Fix it with **one** of the two constants, never both.
+**Check:** step 7 says PASS. `./reflex-guardian --check-conf` prints the calibration date.
 
-### 7.3 Centre (CENTER_MM)
-
-1. Set `SENSOR_DIR` correctly first.
-2. Temporarily set `CENTER_MM = 0`, rebuild and flash.
-3. Hold the ball still at the pivot mark. Average the `P` readings over a few seconds (for example 258).
-4. Set `CENTER_MM` to that number (258), rebuild and flash. The reading at the centre is now about 0.
-
-### 7.4 Range window (RANGE_MIN_MM, RANGE_MAX_MM)
-
-1. With `CENTER_MM = 0` still set, read the value with the ball against the near stop and against the far stop, and with no ball at all.
-2. `RANGE_MIN_MM`: about 20 below the near-stop reading.
-3. `RANGE_MAX_MM`: halfway between the far-stop reading and the no-ball reading.
-4. If the far-stop and no-ball readings are within 30 mm of each other, the sensor is seeing the stop: lower the stop or tape it black (2.3).
-
-### 7.5 Angle scale (US_PER_MILLIRAD)
-
-1. Send `U 200` repeatedly. That should be 0.200 rad = 11.5° of beam.
-2. Read the inclinometer. If it says, for example, 9.0°, multiply `US_PER_MILLIRAD` by 11.5 / 9.0.
-3. Repeat with `U -200`. If the two sides differ by more than 1°, the linkage is not symmetric: the horn is not horizontal at centre. Fix the mechanics (3.3), not the constant.
-
-### 7.6 Beam length in software
-
-If your usable travel is not ±200 mm, change `half_len` in `rx_cfg_default()` in `src/core/rx_core.c` (metres), rebuild, and run `make test` on the laptop before copying to the Pi.
-
-**Check:** `U 200` gives 11.5 ± 0.5° and `U -200` gives −11.5 ± 0.5°; the ball at the pivot reads 0 ± 3 mm; positive command means increasing position.
+The wizard is tested without hardware: `make test-cal` gives the fake I/O node a hidden calibration that is wrong in every way (level off by 30 µs, a different servo gain, both signs flipped, centre moved) and checks that `rxcal --auto` recovers it. `--auto` only runs on an emulated node.
 
 ---
 
@@ -385,30 +370,29 @@ Do this in stages. Keep a hand near the beam the first few times.
 
 ```sh
 cd ~/reflex
-./reflex-guardian --backend serial --dev /dev/serusb1 --no-pilot --fresh &
-./rxdash &
+./reflex-demo.sh start --no-pilot         # picks the serial backend because the node and reflex.conf are there
 ```
 
-Open the dashboard on the laptop: `http://<pi-ip>:8080`. The guardian flies the beam with its simple, verified controller.
+It prints the dashboard address; open it on the laptop (`http://<pi-ip>:8080`). The guardian flies the beam with its simple, verified controller. `./reflex-demo.sh stop` stops everything.
 
 | What you see | Cause | Fix |
 |---|---|---|
 | Ball settles at the setpoint, slowly | Correct | Go to 9.2 |
-| Ball races to one end, every time | A sign is wrong | Part 7.2 |
+| Ball races to one end, every time | A sign is wrong | Run `./rxcal` again (step 3 and 6) |
 | Ball oscillates around the setpoint, growing | Plant slower than the model | In `rx_cfg_hardware()`: raise `est_tau` to 0.12, or lower `wn` to 1.8 in `rx_cfg_default()` |
 | Ball oscillates, small and steady | Backlash or sensor noise | Tighten the linkage nuts; check sensor height |
-| Dashboard says "sensor lost" often | Range window or sensor sees walls | Part 7.4, 2.3 |
+| Dashboard says "sensor lost" often | Range window or sensor sees walls | `./rxcal` step 5, Part 2.3 |
 | Beam jerks and Black Pill resets | Power | Capacitor, common ground, separate supply (Part 4) |
 
 ### 9.2 Add the AI
 
 ```sh
-slay reflex-guardian
-./reflex-guardian --backend serial --dev /dev/serusb1 --learn-from-sim --fresh &
+./reflex-demo.sh stop
+./reflex-demo.sh start --learn-from-sim
 ./rxctl period 3000
 ```
 
-The pilot starts from the simulator-trained network and adapts to your real beam. Leave it 15-30 minutes. Watch the learning panel: interventions should become rarer. Then `./rxctl train off` to fly the best weights.
+On the serial backend the pilot starts from the network trained for the hardware configuration (`src/core/policy_weights_hw.h`, `tools/train_policy.py --hardware`) and adapts to your real beam. Leave it 15-30 minutes. Watch the learning panel: interventions should become rarer. Then `./rxctl train off` to fly the best weights.
 
 If the guardian intervenes constantly with reason `envelope` even when the ball is calm, the real plant reacts more slowly than the model: raise `t_delay` in `rx_cfg_hardware()` to 0.16 and rebuild.
 
@@ -435,7 +419,9 @@ If the guardian intervenes constantly with reason `envelope` even when the ball 
 | Readings jump by 20-50 mm | Sensor sees the channel walls or a stop | Raise the sensor, lower the walls/stops, matte tape |
 | Readings fine on the laptop, nothing on the Pi | USB serial driver | Part 8, or the UART fallback |
 | LED keeps blinking while the guardian runs | Commands do not arrive | Wrong `--dev`; baud mismatch; check `cat` on the device |
-| Ball lost at one end only | Asymmetric linkage or off-centre pivot | Part 3.3 check; 7.5 step 3 |
+| Event log: `I/O node firmware speaks protocol v1` | Old firmware on the Black Pill | `make fw && make flash` (Part 5) |
+| `reflex-demo.sh` says "no valid calibration" and uses the simulator | No or broken `reflex.conf` | `./rxcal` (Part 7) |
+| Ball lost at one end only | Asymmetric linkage or off-centre pivot | Part 3.3 check; `rxcal` step 6 asymmetry warning |
 
 ---
 

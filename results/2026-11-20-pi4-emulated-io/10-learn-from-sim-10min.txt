@@ -1,0 +1,142 @@
+$ ./reflex-guardian --backend serial --dev /dev/serusb1 --learn-from-sim --weights ./reflex-policy-serial.bin --fresh &
+$ ./rxctl period 3000
+=== t=0s
+mode              AI (none)
+wake latency      max=15.6us  deadline-misses=0
+interventions     0 total
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=0  smoothed cost=0.000
+=== t=60s
+mode              AI (none)
+wake latency      max=35.1us  deadline-misses=0
+interventions     1 total
+  envelope        1
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=20  smoothed cost=0.414
+=== t=120s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     10 total
+  envelope        10
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=40  smoothed cost=0.745
+=== t=180s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     19 total
+  envelope        19
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=60  smoothed cost=0.388
+=== t=240s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     22 total
+  envelope        22
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=80  smoothed cost=0.393
+=== t=300s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     23 total
+  envelope        23
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=100  smoothed cost=0.460
+=== t=360s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     31 total
+  envelope        31
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=120  smoothed cost=0.675
+=== t=420s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     47 total
+  envelope        47
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=140  smoothed cost=0.685
+=== t=480s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     58 total
+  envelope        58
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=160  smoothed cost=0.513
+=== t=540s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     61 total
+  envelope        61
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=179  smoothed cost=0.640
+=== t=600s
+mode              AI (none)
+wake latency      max=44.5us  deadline-misses=0
+interventions     62 total
+  envelope        62
+pilot             pid=2314291 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+learning          ON  episodes=199  smoothed cost=0.369
+=== events
+  191.90s ago  tick 20513     guardian took over (envelope)
+  191.20s ago  tick 20548     AI back in control
+  188.82s ago  tick 20667     guardian took over (envelope)
+  188.26s ago  tick 20695     AI back in control
+  185.94s ago  tick 20811     guardian took over (envelope)
+  185.08s ago  tick 20854     AI back in control
+  184.66s ago  tick 20875     guardian took over (envelope)
+  184.00s ago  tick 20908     AI back in control
+  183.56s ago  tick 20930     guardian took over (envelope)
+  182.92s ago  tick 20962     AI back in control
+  170.80s ago  tick 21568     guardian took over (envelope)
+  170.12s ago  tick 21602     AI back in control
+  167.76s ago  tick 21720     guardian took over (envelope)
+  167.12s ago  tick 21752     AI back in control
+  164.66s ago  tick 21875     guardian took over (envelope)
+  164.14s ago  tick 21901     AI back in control
+  161.72s ago  tick 22022     guardian took over (envelope)
+  161.06s ago  tick 22055     AI back in control
+  158.68s ago  tick 22174     guardian took over (envelope)
+  158.08s ago  tick 22204     AI back in control
+  155.70s ago  tick 22323     guardian took over (envelope)
+  154.96s ago  tick 22360     AI back in control
+  152.68s ago  tick 22474     guardian took over (envelope)
+  152.06s ago  tick 22505     AI back in control
+  149.70s ago  tick 22623     guardian took over (envelope)
+  149.06s ago  tick 22655     AI back in control
+  146.66s ago  tick 22775     guardian took over (envelope)
+  146.00s ago  tick 22808     AI back in control
+  143.66s ago  tick 22925     guardian took over (envelope)
+  143.04s ago  tick 22956     AI back in control
+  128.60s ago  tick 23678     guardian took over (envelope)
+  127.84s ago  tick 23716     AI back in control
+   81.04s ago  tick 26056     guardian took over (envelope)
+   80.52s ago  tick 26082     AI back in control
+   76.60s ago  tick 26278     guardian took over (envelope)
+   76.00s ago  tick 26308     AI back in control
+   75.64s ago  tick 26326     guardian took over (envelope)
+   74.88s ago  tick 26364     AI back in control
+    2.20s ago  tick 29998     guardian took over (envelope)
+    1.58s ago  tick 30029     AI back in control
+=== guardian-learn-serial.log
+[guardian] mlockall (continuing): Operation not permitted
+[guardian] pid 2302001  qnx-msgpass  50 Hz  plant=serial  prio=50  pilot=./reflex-pilot  LEARNING from sim weights
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+=== latency
+guardian wake-up latency, 30008 ticks at 50 Hz (period 20000 us)
+         4 - 8        us |########################################| 27124
+         8 - 16       us |##############################          | 2383
+        16 - 32       us |########################                | 461
+        32 - 64       us |##############                          | 40
+  p50 < 8 us   p99 < 32 us   p99.99 < 64 us   max = 44.5 us   late ticks (> period/2) = 0
+DONE

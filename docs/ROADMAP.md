@@ -80,7 +80,7 @@ The same steps as the Whiteboard flowchart, as a checklist. Deadline 16 Dec 2026
 - [ ] **E7** Clamp the block to the axle with a nut each side
 - [ ] **Check:** Beam turns freely, about balanced?  
       *If not:* Shift the pivot or add a small counterweight
-- [ ] **E8** Centre the servo (send `U 0`), fit the metal horn horizontal
+- [ ] **E8** Centre the servo (send `S 1500`), fit the metal horn horizontal
 - [ ] **E9** Mount the servo below the link point, 60 mm from the pivot
 - [ ] **E10** Bracket under the beam at 60 mm; horn hole at 20 mm
 - [ ] **E11** M3 push-rod with lock-nuts on both ends
@@ -107,7 +107,7 @@ The same steps as the Whiteboard flowchart, as a checklist. Deadline 16 Dec 2026
       *If not:* Rewire before powering anything
 - [ ] **F9** DFU mode, then `make fw && make flash` (real firmware)
 - [ ] **F10** `scripts/fw.sh monitor`: ready line, P values follow the ball
-- [ ] **Check:** Sensor found and servo obeys `U 100`?  
+- [ ] **Check:** Sensor found and servo obeys `S 1600`?  
       *If not:* HARDWARE Part 10 troubleshooting table
 - [ ] **Milestone: I/O node alive**
 

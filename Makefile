@@ -55,10 +55,10 @@ else
   EXTRA   :=
 endif
 
-CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c
+CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c src/core/rx_conf.c
 HDRS := $(wildcard src/core/*.h src/ipc/*.h src/guardian/*.h src/tools/*.h)
 
-BINS := $(OUT)/reflex-guardian $(OUT)/reflex-pilot $(OUT)/rxctl $(OUT)/rxdash $(OUT)/rx_simtest $(OUT)/rx_linktest $(EXTRA)
+BINS := $(OUT)/reflex-guardian $(OUT)/reflex-pilot $(OUT)/rxctl $(OUT)/rxdash $(OUT)/rxcal $(OUT)/rx_simtest $(OUT)/rx_linktest $(EXTRA)
 
 all: $(BINS)
 	@echo "built: $(BINS)"
@@ -81,8 +81,11 @@ $(OUT)/rxdash: src/tools/rxdash.c src/tools/dash_html.h $(CORE) $(HDRS) | $(OUT)
 $(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(LIBS)
 
-$(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_link.h | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c $(LIBS)
+$(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c $(LIBS)
+
+$(OUT)/rxcal: src/tools/rxcal.c $(CORE) $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/tools/rxcal.c $(CORE) $(LIBS)
 
 $(OUT)/rxfs: src/qnx/rxfs.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxfs.c $(CORE) $(LIBS)
@@ -107,6 +110,9 @@ test: $(OUT)/rx_simtest $(OUT)/rx_linktest
 test-serial:
 	./scripts/test-serial.sh
 
+test-cal:
+	./scripts/test-cal.sh
+
 clean:
 	rm -rf build
 
@@ -127,4 +133,4 @@ flash:
 deploy:
 	./scripts/deploy.sh
 
-.PHONY: all test test-serial clean policy setup doctor fw flash deploy
+.PHONY: all test test-serial test-cal clean policy setup doctor fw flash deploy

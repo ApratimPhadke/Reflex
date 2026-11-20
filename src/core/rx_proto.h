@@ -77,12 +77,13 @@ static const char *const rx_fault_name[]  = { "none", "nan", "flip", "stuck", "h
 typedef enum {
     RX_E_GUARDIAN_START = 1, RX_E_INTERVENE, RX_E_AI_RESUMED, RX_E_PILOT_SPAWN, RX_E_PILOT_DIED,
     RX_E_KILL_HUNG, RX_E_KILL_STRIKES, RX_E_QUARANTINE, RX_E_RELEASE, RX_E_BALL_LOST, RX_E_SPOOF,
-    RX_E_SENSOR_LOST, RX_E_LINK_DOWN, RX_E_LINK_UP, RX_E_COUNT
+    RX_E_SENSOR_LOST, RX_E_LINK_DOWN, RX_E_LINK_UP, RX_E_NODE_INFO, RX_E_NODE_OLD, RX_E_COUNT
 } rx_evcode_e;
 static const char *const rx_event_name[] = { "?", "guardian started", "guardian took over", "AI back in control",
     "pilot spawned", "pilot died", "pilot killed: unresponsive", "pilot killed: 3 unsafe commands",
     "pilot quarantined", "quarantine released", "BALL LOST", "spoofed sender refused", "sensor lost",
-    "I/O node link down", "I/O node link up" };
+    "I/O node link down", "I/O node link up", "I/O node identified (arg = protocol*10 + emulated)",
+    "I/O node firmware speaks protocol v1: reflash it (make fw && make flash)" };
 typedef struct { uint64_t t_ns; uint32_t seq; uint16_t code; int32_t arg; } rx_event_t;
 
 /* ---- telemetry record (one per control tick) ------------------------- */
@@ -146,6 +147,16 @@ typedef struct {
 
     _Atomic uint64_t head;                  /* next record index to be written */
     rx_rec_t ring[RX_RING];
+
+    /* serial backend (appended so older segments keep their layout; zero = unknown) */
+    char  calibrated_at[40];                /* reflex.conf calibrated_at, or "uncalibrated" (written once at start) */
+    _Atomic uint32_t node_link;             /* 1 = I/O node link up */
+    _Atomic uint32_t node_proto;            /* from the node's "I" line; 0 until seen. Written last, after the two below */
+    _Atomic uint32_t node_emulated;
+    char  node_board[24];
+    /* demo: a caption the dashboard shows as a banner (rxctl caption / rxctl script) */
+    _Atomic uint32_t caption_seq;           /* odd while being written */
+    char  caption[96];
 } rx_shm_t;
 
 #endif

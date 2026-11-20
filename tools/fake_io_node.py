@@ -2,17 +2,23 @@
 # SPDX-License-Identifier: MIT
 """Fake Reflex I/O node: a ball-and-beam on a pseudo-terminal.
 
-Speaks the same line protocol as firmware/reflex_io (see src/core/rx_link.h) and simulates the
-same plant as rx_plant_step() in src/core/rx_core.c, so the guardian's serial backend can be
-tested end to end without hardware:
+Speaks protocol v2 like firmware/reflex_io (see src/core/rx_link.h) and simulates the same plant
+as rx_plant_step() in src/core/rx_core.c, so the guardian's serial backend and the rxcal wizard can
+be tested end to end without hardware:
 
     tools/fake_io_node.py --link /tmp/reflex-fake-io &
+    build/linux/rxcal --dev /tmp/reflex-fake-io --auto          # writes reflex.conf
     build/linux/reflex-guardian --backend serial --dev /tmp/reflex-fake-io
 
-Plant: x'' = k sin(theta) - 0.15 v, servo slews at `slew` rad/s toward the commanded angle, which
-the node clamps to +/-230 mrad (the firmware's hard limit). Sensor: 50 Hz, uniform noise
-+/-noise_mm, 1 mm quantisation, "P !" while the ball is off the beam. Watchdog: no "U" line for
-150 ms -> command 0 (level). A lost ball is replaced at the centre after 1 s.
+The rig has a hidden calibration (--level-us, --us-per-mrad, --servo-dir, --center-mm, --sensor-dir,
+--noball-mm) that rxcal has to find: beam angle = servo_dir * (pulse - level_us) / us_per_mrad,
+raw reading = center_mm + sensor_dir * x_mm. Plant: x'' = k sin(theta) - 0.15 v, the servo slews at
+6 rad/s, the pulse is clamped to 1000..2000 us and the beam to +/-230 mrad. Sensor: 50 Hz "M <raw>",
+uniform noise +/-noise_mm, 1 mm quantisation; with no ball it reads --noball-mm ("M !" if 0).
+Watchdog: no "S" line for 150 ms -> the stored level pulse ("L", initially --stored-level-us).
+A ball that falls off is replaced at the centre after 1 s. As an emulated node it identifies with
+"I reflex_io 2 FAKE_IO_NODE 1", sends the true angle as "T <mrad>" and obeys the emulator-only
+"E pin <mm>" / "E free" / "E remove".
 
 Fault knobs for robustness tests: --garbage P (fraction of garbage lines), SIGUSR1 = unplug for
 --replug-gap seconds (the pty disappears and a new one appears behind the same link), SIGUSR2 =
@@ -33,6 +39,7 @@ import time
 import tty
 
 K_ACC, THETA_MAX_NODE, SLEW, ROLL_LOSS, HALF_LEN = 5.886, 0.230, 6.0, 0.15, 0.20
+PULSE_MIN, PULSE_MAX, PROTO = 1000, 2000, 2
 WATCHDOG_S, SENSOR_HZ, SUBSTEP = 0.150, 50.0, 0.0005
 
 
@@ -69,13 +76,34 @@ def main():
     ap.add_argument("--x0-mm", type=float, default=30.0, help="initial ball position")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--seconds", type=float, default=0, help="exit after this long (0 = run until killed)")
+    # the rig's hidden calibration (what rxcal has to find)
+    ap.add_argument("--level-us", type=int, default=1500, help="pulse at which the beam is truly level")
+    ap.add_argument("--us-per-mrad", type=float, default=1.9)
+    ap.add_argument("--servo-dir", type=int, default=1, choices=(-1, 1))
+    ap.add_argument("--center-mm", type=int, default=260, help="raw reading with the ball at the pivot")
+    ap.add_argument("--sensor-dir", type=int, default=1, choices=(-1, 1))
+    ap.add_argument("--noball-mm", type=int, default=0, help="raw reading with no ball (0 = report 'M !')")
+    ap.add_argument("--stored-level-us", type=int, default=1500, help="level pulse in the node's flash at start")
+    ap.add_argument("--real", action="store_true", help="pose as real hardware: emulated=0, no T lines, E commands ignored")
     a = ap.parse_args()
     rnd = random.Random(a.seed)
 
     st = dict(balls_lost=0, min_edge_mm=1e9, watchdog_trips=0, commands=0, bad_commands=0,
               samples_sent=0, samples_dropped=0, garbage_sent=0, replugs=0, stalls=0,
-              max_abs_cmd_mrad=0, t=0.0, x_mm=0.0, theta_mrad=0.0, link=a.link)
+              max_abs_cmd_mrad=0, t=0.0, x_mm=0.0, theta_mrad=0.0, link=a.link,
+              level_writes=0, stored_level_us=a.stored_level_us, pulse_us=a.stored_level_us, queries=0,
+              truth=dict(level_us=a.level_us, us_per_mrad=a.us_per_mrad, servo_dir=a.servo_dir,
+                         center_mm=a.center_mm, sensor_dir=a.sensor_dir, noball_mm=a.noball_mm))
     x, v, th, cmd = a.x0_mm / 1000.0, 0.0, 0.0, 0.0
+    stored_level = a.stored_level_us
+    pinned, removed = None, False        # emulator test hooks ("E pin <mm>", "E remove")
+
+    HELLO = f"I reflex_io {PROTO} FAKE_REAL 0" if a.real else f"I reflex_io {PROTO} FAKE_IO_NODE 1"
+
+    def angle_of(pulse):
+        pulse = max(PULSE_MIN, min(PULSE_MAX, pulse))
+        th_ = a.servo_dir * (pulse - a.level_us) / a.us_per_mrad / 1000.0
+        return max(-THETA_MAX_NODE, min(THETA_MAX_NODE, th_)), pulse
     lost_until = 0.0
     last_cmd_t = -1e9
     in_watchdog = True
@@ -88,6 +116,7 @@ def main():
 
     p = Pty(a.link)
     print(f"fake_io_node: {a.link} -> {os.ttyname(p.slave)}", flush=True)
+    cmd, st["pulse_us"] = angle_of(stored_level)
     rx = b""
     t0 = time.monotonic()
     t_sim = 0.0
@@ -108,7 +137,7 @@ def main():
         if p is None:
             return
         if a.garbage and rnd.random() < a.garbage:
-            line = rnd.choice(["P 12abc", "P", "xx P 5", "P 99999", "\x00\xff garbage", "P -", "# noise"])
+            line = rnd.choice(["M 12abc", "M", "xx M 5", "M 99999", "\x00\xff garbage", "M -", "# noise", "I reflex_io"])
             st["garbage_sent"] += 1
         try:
             os.write(p.master, (line + "\n").encode("latin-1"))
@@ -117,6 +146,7 @@ def main():
         except OSError:
             pass
 
+    send(HELLO)                  # hello on reset, like the firmware
     while not req["stop"]:
         now = time.monotonic() - t0
         if a.seconds and now > a.seconds:
@@ -136,6 +166,7 @@ def main():
         if p is None and now >= unplugged_until:
             p = Pty(a.link)
             rx = b""
+            send(HELLO)          # a replugged board resets and says hello
         if req["stall"]:
             req["stall"] = False
             stall_until = now + a.stall
@@ -152,18 +183,37 @@ def main():
             while b"\n" in rx or b"\r" in rx:
                 i = min(j for j in (rx.find(b"\n"), rx.find(b"\r")) if j >= 0)
                 line, rx = rx[:i].decode("latin-1").strip(), rx[i + 1:]
-                if line.startswith("U "):
-                    try:
-                        m = int(line[2:])
-                    except ValueError:
+                parts = line.split()
+                try:
+                    if len(parts) == 2 and parts[0] == "S":
+                        cmd, st["pulse_us"] = angle_of(int(parts[1]))      # hard limits, independent of host
+                        st["commands"] += 1
+                        st["max_abs_cmd_mrad"] = max(st["max_abs_cmd_mrad"], round(abs(cmd) * 1000))
+                        last_cmd_t = now
+                        in_watchdog = False
+                    elif len(parts) == 2 and parts[0] == "L":
+                        lv = max(PULSE_MIN, min(PULSE_MAX, int(parts[1])))
+                        if lv != stored_level:
+                            stored_level = lv
+                            st["level_writes"] += 1                    # the firmware writes flash only on change
+                        st["stored_level_us"] = stored_level
+                    elif parts == ["?"]:
+                        st["queries"] += 1
+                        send(HELLO)
+                    elif parts and parts[0] == "E" and a.real:
+                        pass                                       # real firmware ignores emulator hooks
+                    elif len(parts) == 3 and parts[:2] == ["E", "pin"]:
+                        pinned, removed = int(parts[2]) / 1000.0, False
+                        x, v, lost_until = pinned, 0.0, 0.0
+                    elif parts == ["E", "free"]:
+                        if removed or lost_until:
+                            x, v, lost_until = 0.0, 0.0, 0.0
+                        pinned, removed = None, False
+                    elif parts == ["E", "remove"]:
+                        pinned, removed = None, True
+                    elif line:
                         st["bad_commands"] += 1
-                        continue
-                    st["commands"] += 1
-                    st["max_abs_cmd_mrad"] = max(st["max_abs_cmd_mrad"], abs(m))
-                    cmd = max(-THETA_MAX_NODE, min(THETA_MAX_NODE, m / 1000.0))   # hard limit, independent of host
-                    last_cmd_t = now
-                    in_watchdog = False
-                elif line:
+                except ValueError:
                     st["bad_commands"] += 1
             if len(rx) > 256:
                 rx = b""
@@ -175,7 +225,7 @@ def main():
             if not in_watchdog:
                 st["watchdog_trips"] += 1
                 in_watchdog = True
-            cmd = 0.0
+            cmd, st["pulse_us"] = angle_of(stored_level)
 
         # ---- physics up to `now`
         while t_sim + SUBSTEP <= now:
@@ -183,7 +233,10 @@ def main():
             d = cmd - th
             lim = SLEW * SUBSTEP
             th += max(-lim, min(lim, d))
-            if t_sim < lost_until:
+            if removed or t_sim < lost_until:
+                continue
+            if pinned is not None:
+                x, v = pinned, 0.0
                 continue
             if lost_until and t_sim >= lost_until:
                 x, v, lost_until = 0.0, 0.0, 0.0
@@ -202,11 +255,13 @@ def main():
             next_sample += 1.0 / SENSOR_HZ
             if next_sample < now:
                 next_sample = now + 1.0 / SENSOR_HZ
-            if lost_until:
-                line = "P !"
+            if lost_until or removed:
+                line = f"M {max(0, round(a.noball_mm + rnd.uniform(-a.noise_mm, a.noise_mm)))}" if a.noball_mm else "M !"
             else:
-                mm = round(x * 1000.0 + rnd.uniform(-a.noise_mm, a.noise_mm))
-                line = f"P {mm}"
+                raw = round(a.center_mm + a.sensor_dir * x * 1000.0 + rnd.uniform(-a.noise_mm, a.noise_mm))
+                line = f"M {max(0, min(2000, raw))}"
+            if p is not None and not (now < stall_until) and not a.real:
+                send(f"T {round(th * 1000)}")
             st["samples_sent"] += 1
             if now < stall_until:
                 stalled.append(line)

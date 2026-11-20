@@ -5,6 +5,8 @@
 
 uint64_t  rx_now_ns(void);
 rx_shm_t *rx_shm_open(int create);
+/* delete the shared-memory object (the next guardian starts a fresh world and fresh counters) */
+int       rx_shm_remove(void);
 void      rx_shm_push(rx_shm_t *s, const rx_rec_t *r);                 /* guardian only, wait-free */
 int       rx_shm_get(const rx_shm_t *s, uint64_t idx, rx_rec_t *out);  /* 1 if a consistent record was copied */
 int       rx_lat_bin(uint32_t lat_ns);

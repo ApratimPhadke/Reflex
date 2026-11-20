@@ -14,5 +14,7 @@ typedef struct rx_io {
 } rx_io_t;
 
 rx_io_t *rx_io_sim_open(const rx_cfg_t *cfg, rx_shm_t *shm, int fresh);
-rx_io_t *rx_io_serial_open(const rx_cfg_t *cfg, const char *dev, rx_shm_t *shm);
+#include "rx_conf.h"
+/* conf: rig calibration (reflex.conf) used to convert raw sensor mm / servo pulses; copied */
+rx_io_t *rx_io_serial_open(const rx_cfg_t *cfg, const char *dev, rx_shm_t *shm, const rx_conf_t *conf);
 #endif

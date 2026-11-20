@@ -45,6 +45,7 @@ typedef struct {
     float hz; int prio, pilot_prio; int sporadic, no_pilot, fresh, verbose, learn;
     const char *backend, *dev, *weights; char pilot_path[512];
     int hardware;                  /* serial backend: tell the pilot it flies the real rig (set from --backend) */
+    const char *conf; int uncalibrated, check_conf;
 } opts_t;
 
 static void usage(void)
@@ -53,6 +54,9 @@ static void usage(void)
          "  --hz N             control rate (default 1000 for sim, 50 for serial)\n"
          "  --backend sim|serial\n"
          "  --dev PATH         serial device of the I/O node (e.g. /dev/serusb1)\n"
+         "  --conf PATH        rig calibration written by rxcal (default: reflex.conf next to this binary)\n"
+         "  --uncalibrated     serial backend without reflex.conf, on built-in defaults (debugging only)\n"
+         "  --check-conf       only check reflex.conf: exit 0 if valid, 2 if not\n"
          "  --prio N           guardian priority (default 50)\n"
          "  --pilot-prio N     pilot priority (default 10)\n"
          "  --sporadic         QNX: run the pilot under SCHED_SPORADIC with a CPU budget\n"
@@ -163,7 +167,7 @@ int main(int argc, char **argv)
      * ssh session). Without this, its first diagnostic line raises SIGPIPE and kills it, HAM
      * restarts it, and it dies again: seen on the Pi 4 as ~1700 restarts in a few seconds. */
     signal(SIGPIPE, SIG_IGN);
-    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0 };
+    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0, NULL, 0, 0 };
     {   /* default pilot path: next to our own binary */
         char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]);
         snprintf(o.pilot_path, sizeof o.pilot_path, "%s/reflex-pilot", dirname(tmp));
@@ -173,6 +177,9 @@ int main(int argc, char **argv)
         if (!strcmp(a, "--hz") && n) { o.hz = (float)atof(n); i++; }
         else if (!strcmp(a, "--backend") && n) { o.backend = n; i++; }
         else if (!strcmp(a, "--dev") && n) { o.dev = n; i++; }
+        else if (!strcmp(a, "--conf") && n) { o.conf = n; i++; }
+        else if (!strcmp(a, "--uncalibrated")) o.uncalibrated = 1;
+        else if (!strcmp(a, "--check-conf")) o.check_conf = 1;
         else if (!strcmp(a, "--prio") && n) { o.prio = atoi(n); i++; }
         else if (!strcmp(a, "--pilot-prio") && n) { o.pilot_prio = atoi(n); i++; }
         else if (!strcmp(a, "--pilot") && n) { snprintf(o.pilot_path, sizeof o.pilot_path, "%s", n); i++; }
@@ -194,6 +201,29 @@ int main(int argc, char **argv)
     rx_cfg_t cfg; rx_cfg_default(&cfg, o.hz);
     if (serial) rx_cfg_hardware(&cfg);
 
+    /* rig calibration: the serial backend refuses to run on guessed values */
+    rx_conf_t conf; rx_conf_default(&conf);
+    char conf_path[512];
+    if (o.conf) snprintf(conf_path, sizeof conf_path, "%s", o.conf);
+    else { char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]); snprintf(conf_path, sizeof conf_path, "%s/reflex.conf", dirname(tmp)); }
+    if (o.check_conf) {                                     /* used by reflex-demo.sh to pick the backend */
+        char err[256];
+        if (rx_conf_load(&conf, conf_path, err, sizeof err) != 0) { fprintf(stderr, "%s\n", err); return 2; }
+        printf("calibration %s (%s)\n", conf.calibrated_at, conf_path);
+        return 0;
+    }
+    if (serial && !o.uncalibrated) {
+        char err[256];
+        if (rx_conf_load(&conf, conf_path, err, sizeof err) != 0) {
+            fprintf(stderr, "[guardian] no valid calibration: %s\n"
+                            "[guardian] run the calibration wizard first:  ./rxcal --dev %s\n"
+                            "[guardian] (--uncalibrated runs on built-in defaults, for debugging only)\n", err, o.dev);
+            return 2;
+        }
+        /* a measured beam can only make the kernel's beam shorter, never longer */
+        if (conf.half_len_m < cfg.half_len) cfg.half_len = conf.half_len_m;
+    }
+
     rx_shm_t *shm = rx_shm_open(1);
     if (!shm) { perror("shm_open " RX_SHM_NAME); return 1; }
     if (o.fresh) rx_shm_defaults(shm);
@@ -204,12 +234,14 @@ int main(int argc, char **argv)
     }
     shm->hz = cfg.hz; shm->half_len = cfg.half_len; shm->theta_max = cfg.theta_max;
     snprintf(shm->backend, sizeof shm->backend, "%s", o.backend);
+    snprintf(shm->calibrated_at, sizeof shm->calibrated_at, "%s", serial ? (o.uncalibrated ? "uncalibrated" : conf.calibrated_at) : "-");
+    atomic_store(&shm->node_link, 0); atomic_store(&shm->node_proto, 0);
     atomic_store(&shm->guardian_pid, getpid());
     atomic_fetch_add(&shm->guardian_starts, 1);
     atomic_store(&shm->pilot_present, 0);
     if (o.learn) atomic_store(&shm->training, 1);
 
-    rx_io_t *io = serial ? rx_io_serial_open(&cfg, o.dev, shm) : rx_io_sim_open(&cfg, shm, o.fresh);
+    rx_io_t *io = serial ? rx_io_serial_open(&cfg, o.dev, shm, &conf) : rx_io_sim_open(&cfg, shm, o.fresh);
     if (!io) return 1;
 
     /* real-time hygiene: no page faults, fixed priority */

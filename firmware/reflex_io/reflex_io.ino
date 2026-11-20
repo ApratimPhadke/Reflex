@@ -4,28 +4,47 @@
  * genuine Arduino Uno/Nano. Library needed: "VL53L0X" by Pololu.
  * Wiring and geometry: docs/HARDWARE.md.
  *
- * Link to the guardian (115200 baud, ASCII lines, parser in src/core/rx_link.c):
- *     node -> guardian   "P <position_mm>"   every 20 ms   ("P !" = no ball seen, "# ..." = comment)
- *     guardian -> node   "U <beam_angle_millirad>"
+ * Link to the host, protocol v2 (115200 baud, ASCII lines; parser in src/core/rx_link.c):
+ *     node -> host   "M <raw_mm>"  raw sensor distance, every 20 ms   ("M !" = no valid reading)
+ *                    "I reflex_io 2 <board> <emulated 0|1>"   on reset and on "?"
+ *                    "T <theta_mrad>"  emulator only: the true beam angle
+ *                    "# ..."           comment
+ *     host -> node   "S <pulse_us>"  servo pulse        "L <pulse_us>"  level pulse (kept in flash)
+ *                    "?"             say who you are    "E pin <mm>" | "E free" | "E remove"  emulator only
+ * The node knows nothing about millimetres along the beam or radians: all calibration lives on the
+ * host in reflex.conf, written by the rxcal wizard. Nothing here needs editing to calibrate a rig.
  *
  * Third ring of defence, independent of the host:
- *   - if no "U" arrives for WATCHDOG_MS the node levels the beam on its own and blinks the LED;
- *   - every command is clamped to +/-MAX_MRAD and the servo pulse to SERVO_MIN_US..SERVO_MAX_US.
+ *   - if no "S" arrives for WATCHDOG_MS the node drives the stored level pulse and blinks the LED;
+ *   - every pulse is clamped to SERVO_MIN_US..SERVO_MAX_US, which no host command can change;
+ *   - the level pulse is written to flash only while the beam is parked by the watchdog (an STM32
+ *     flash erase stalls the CPU for a second or two) and only when it changed.
  * The loop never blocks: the sensor is polled for "data ready" and output is only written when
  * the USB/serial buffer has room, so the watchdog runs every pass whatever the host is doing.
  *
  * REFLEX_EMULATE=1 (make fw EMULATE=1): no sensor, no servo. The board simulates the same
- * ball-and-beam as rx_plant_step() in src/core/rx_core.c and reports it with sensor-like noise,
- * speaking the identical protocol, so the whole chain Pi -> USB -> board can be tested before
- * the mechanics exist. The watchdog and the clamps behave exactly as in the real build.
+ * ball-and-beam as rx_plant_step() in src/core/rx_core.c, behind a deliberately non-default hidden
+ * calibration (EMU_* below) that rxcal has to find, and reports it with sensor-like noise.
+ * The watchdog and the clamps behave exactly as in the real build.
  *
  * SPDX-License-Identifier: MIT */
 #ifndef REFLEX_EMULATE
 #define REFLEX_EMULATE 0
 #endif
+#define STR_(x) #x
+#define STR(x) STR_(x)
+#if defined(REFLEX_BOARD_ID)
+#define RX_BOARD_NAME STR(REFLEX_BOARD_ID)        /* scripts/fw.sh passes BOARD */
+#elif defined(BOARD_NAME)
+#define RX_BOARD_NAME BOARD_NAME                  /* STM32duino's own name for the variant */
+#else
+#define RX_BOARD_NAME "UNKNOWN"
+#endif
+#define PROTO 2
 
 #include <Wire.h>
 #include <Servo.h>
+#include <EEPROM.h>
 #if !REFLEX_EMULATE
 #include <VL53L0X.h>
 #endif
@@ -40,80 +59,69 @@
 #define LINK Serial
 #endif
 
-/* ---------------- calibrate these for YOUR build (docs/HARDWARE.md, part 7) ---------------- */
 #if defined(ARDUINO_ARCH_STM32)
 const int SERVO_PIN = PA8;
 #else
 const int SERVO_PIN = 9;
 #endif
-const int   SERVO_CENTER_US   = 1500;   /* pulse width at which the beam is level                  */
-const float US_PER_MILLIRAD   = 1.9f;   /* servo microseconds per milliradian of BEAM angle        */
-const int   SERVO_DIR         = +1;     /* flip to -1 if a positive command tilts the wrong way    */
-const int   CENTER_MM         = 260;    /* sensor reading when the ball is at the beam centre      */
-const int   SENSOR_DIR        = +1;     /* flip to -1 so that +command makes position INCREASE     */
-const int   RANGE_MIN_MM      = 40;     /* readings outside this window mean "no ball"             */
-const int   RANGE_MAX_MM      = 495;    /* must be BELOW what the sensor reads with no ball on the beam */
 /* ---------------- hard limits: not calibration, never loosen to "make it work" ---------------- */
-const long  MAX_MRAD          = 230;    /* beam command clamp, independent of the guardian          */
-const int   SERVO_MIN_US      = 1000;   /* servo pulse clamp, independent of every constant above   */
-const int   SERVO_MAX_US      = 2000;
+const int   SERVO_MIN_US      = 1000;   /* servo pulse clamp, independent of every host command     */
+const int   SERVO_MAX_US      = 2000;   /* narrow these if the linkage binds before the servo's end */
+const int   DEFAULT_LEVEL_US  = 1500;   /* level pulse until the host has stored one with "L"       */
 const unsigned long WATCHDOG_MS = 150;
 const unsigned long REPORT_MS   = 20;   /* 50 Hz */
+const int   SENSOR_MAX_MM     = 2000;   /* readings beyond this are reported as "M !"              */
 /* --------------------------------------------------------------------------------------------- */
 
 Servo servo;
 unsigned long lastCmdMs = 0, lastSendMs = 0;
-char line[24];
+char line[32];
 uint8_t len = 0;
 bool overflow = false;
-long beamMrad = 0;                      /* clamped command currently applied */
+int pulseUs = DEFAULT_LEVEL_US;         /* clamped pulse currently applied */
+int levelUs = DEFAULT_LEVEL_US;         /* level pulse used by the watchdog */
+int storedLevelUs = -1;                 /* what flash holds (-1 = nothing valid) */
 
-#if REFLEX_EMULATE
-/* ---------------- emulated plant: same model and constants as rx_plant_step() ---------------- */
-const float K_ACC = 5.886f, SLEW = 6.0f, ROLL_LOSS = 0.15f, HALF_LEN = 0.20f, NOISE_MM = 3.0f;
-float ex = 0.03f, ev = 0.0f, eth = 0.0f;
-unsigned long lastStepUs = 0, lostUntilMs = 0;
-bool eLost = false;
-uint32_t rngState = 0x9E3779B9u;
-static float urand() { rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5; return (rngState >> 8) * (1.0f / 16777216.0f); }
-
-static void emuStep()
+/* ---------------- level pulse in flash (EEPROM emulation on STM32, real EEPROM on AVR) --------- */
+const uint8_t EE_MAGIC0 = 'R', EE_MAGIC1 = 'L';
+static uint8_t eeRead(int a)
 {
-  unsigned long now = micros();
-  unsigned long dus = now - lastStepUs;
-  if (dus < 500) return;
-  if (dus > 20000) dus = 20000;            /* never integrate a long gap in one go */
-  lastStepUs = now;
-  float target = beamMrad * 0.001f;
-  for (unsigned long t = 0; t + 500 <= dus; t += 500) {
-    const float h = 0.0005f;
-    float d = target - eth, lim = SLEW * h;
-    eth += d > lim ? lim : (d < -lim ? -lim : d);
-    if (eLost) continue;
-    float a = K_ACC * sinf(eth) - ROLL_LOSS * ev;
-    ev += a * h;
-    ex += ev * h;
-    if (fabsf(ex) > HALF_LEN) { eLost = true; lostUntilMs = millis() + 1000; ex = ex > 0 ? HALF_LEN : -HALF_LEN; ev = 0; }
-  }
-  if (eLost && (long)(millis() - lostUntilMs) >= 0) { eLost = false; ex = 0; ev = 0; }
-}
+#if defined(ARDUINO_ARCH_STM32)
+  return eeprom_buffered_read_byte(a);
 #else
-VL53L0X tof;
-bool sensorOk = false;
-int lastMm = -1;                         /* newest valid reading, -1 = none */
-unsigned long lastReadingMs = 0;
+  return EEPROM.read(a);
 #endif
-
-void setBeam(long mrad)
+}
+static void loadLevel()
 {
-  if (mrad > MAX_MRAD) mrad = MAX_MRAD;
-  if (mrad < -MAX_MRAD) mrad = -MAX_MRAD;
-  beamMrad = mrad;
-  long us = SERVO_CENTER_US + SERVO_DIR * (long)(mrad * US_PER_MILLIRAD);
-  if (us < SERVO_MIN_US) us = SERVO_MIN_US;
-  if (us > SERVO_MAX_US) us = SERVO_MAX_US;
+#if defined(ARDUINO_ARCH_STM32)
+  eeprom_buffer_fill();                  /* copy the flash page into RAM once */
+#endif
+  uint8_t m0 = eeRead(0), m1 = eeRead(1), lo = eeRead(2), hi = eeRead(3), ck = eeRead(4);
+  int v = lo | (hi << 8);
+  if (m0 == EE_MAGIC0 && m1 == EE_MAGIC1 && ck == (uint8_t)(lo ^ hi ^ 0x5A) && v >= SERVO_MIN_US && v <= SERVO_MAX_US) {
+    levelUs = storedLevelUs = v;
+  }
+}
+static void saveLevel(int v)            /* one sector erase + program; call only while parked */
+{
+  uint8_t lo = v & 0xFF, hi = (v >> 8) & 0xFF, b[5] = { EE_MAGIC0, EE_MAGIC1, lo, hi, (uint8_t)(lo ^ hi ^ 0x5A) };
+#if defined(ARDUINO_ARCH_STM32)
+  for (int i = 0; i < 5; i++) eeprom_buffered_write_byte(i, b[i]);
+  eeprom_buffer_flush();
+#else
+  for (int i = 0; i < 5; i++) EEPROM.update(i, b[i]);
+#endif
+  storedLevelUs = v;
+}
+
+static int clampPulse(long us) { return us < SERVO_MIN_US ? SERVO_MIN_US : (us > SERVO_MAX_US ? SERVO_MAX_US : (int)us); }
+
+void setPulse(long us)
+{
+  pulseUs = clampPulse(us);
 #if !REFLEX_EMULATE
-  servo.writeMicroseconds((int)us);
+  servo.writeMicroseconds(pulseUs);
 #endif
 }
 
@@ -126,10 +134,17 @@ static void sendLine(const char *s)
   LINK.print("\r\n");
 }
 
-/* strict "U <int>" parser; anything else is ignored */
-static bool parseU(const char *s, long *out)
+static void sendInfo()
 {
-  if (s[0] != 'U' || s[1] != ' ') return false;
+  char b[64];
+  snprintf(b, sizeof b, "I reflex_io %d %s %d", PROTO, RX_BOARD_NAME, REFLEX_EMULATE ? 1 : 0);
+  sendLine(b);
+}
+
+/* strict "<c> <int>" parser */
+static bool parseCmd(const char *s, char c, long *out)
+{
+  if (s[0] != c || s[1] != ' ') return false;
   s += 2;
   while (*s == ' ') s++;
   bool neg = false;
@@ -142,16 +157,83 @@ static bool parseU(const char *s, long *out)
   return true;
 }
 
+#if REFLEX_EMULATE
+/* ---------------- emulated plant: same model and constants as rx_plant_step() ---------------- */
+/* hidden calibration of the emulated rig (what rxcal has to find; deliberately not the defaults) */
+const int   EMU_LEVEL_US = 1520, EMU_SERVO_DIR = -1, EMU_CENTER_MM = 255, EMU_SENSOR_DIR = +1, EMU_NOBALL_MM = 560;
+const float EMU_US_PER_MRAD = 2.0f;
+const float K_ACC = 5.886f, SLEW = 6.0f, ROLL_LOSS = 0.15f, HALF_LEN = 0.20f, NOISE_MM = 3.0f, THETA_MAX_MECH = 0.230f;
+float ex = 0.03f, ev = 0.0f, eth = 0.0f;
+unsigned long lastStepUs = 0, lostUntilMs = 0;
+bool eLost = false, eRemoved = false, ePinned = false;
+float ePin = 0.0f;
+uint32_t rngState = 0x9E3779B9u;
+static float urand() { rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5; return (rngState >> 8) * (1.0f / 16777216.0f); }
+
+static float targetAngle()
+{
+  float th = EMU_SERVO_DIR * (pulseUs - EMU_LEVEL_US) / EMU_US_PER_MRAD * 0.001f;
+  return th > THETA_MAX_MECH ? THETA_MAX_MECH : (th < -THETA_MAX_MECH ? -THETA_MAX_MECH : th);
+}
+
+static void emuStep()
+{
+  unsigned long now = micros();
+  unsigned long dus = now - lastStepUs;
+  if (dus < 500) return;
+  if (dus > 20000) dus = 20000;            /* never integrate a long gap in one go */
+  lastStepUs = now;
+  float target = targetAngle();
+  for (unsigned long t = 0; t + 500 <= dus; t += 500) {
+    const float h = 0.0005f;
+    float d = target - eth, lim = SLEW * h;
+    eth += d > lim ? lim : (d < -lim ? -lim : d);
+    if (eLost || eRemoved) continue;
+    if (ePinned) { ex = ePin; ev = 0; continue; }
+    float a = K_ACC * sinf(eth) - ROLL_LOSS * ev;
+    ev += a * h;
+    ex += ev * h;
+    if (fabsf(ex) > HALF_LEN) { eLost = true; lostUntilMs = millis() + 1000; ex = ex > 0 ? HALF_LEN : -HALF_LEN; ev = 0; }
+  }
+  if (eLost && (long)(millis() - lostUntilMs) >= 0) { eLost = false; ex = 0; ev = 0; }
+}
+
+static void emuCommand(const char *s)    /* "E pin <mm>" | "E free" | "E remove" */
+{
+  long mm;
+  if (!strncmp(s, "E pin ", 6)) { char b[24]; snprintf(b, sizeof b, "P %s", s + 6); if (parseCmd(b, 'P', &mm)) { ePinned = true; eRemoved = false; eLost = false; ePin = mm * 0.001f; ex = ePin; ev = 0; } }
+  else if (!strcmp(s, "E free")) { if (eRemoved || eLost) { ex = 0; ev = 0; } ePinned = eRemoved = eLost = false; }
+  else if (!strcmp(s, "E remove")) { eRemoved = true; ePinned = false; }
+}
+#else
+VL53L0X tof;
+bool sensorOk = false;
+int lastMm = -1;                         /* newest valid reading, -1 = none */
+unsigned long lastReadingMs = 0;
+#endif
+
+static void handleLine(const char *s)
+{
+  long v;
+  if (parseCmd(s, 'S', &v)) { setPulse(v); lastCmdMs = millis(); }
+  else if (parseCmd(s, 'L', &v)) { levelUs = clampPulse(v); }     /* saved to flash once parked */
+  else if (!strcmp(s, "?")) sendInfo();
+#if REFLEX_EMULATE
+  else if (s[0] == 'E' && s[1] == ' ') emuCommand(s);
+#endif
+}
+
 void setup()
 {
   pinMode(LED_BUILTIN, OUTPUT);
   LINK.begin(115200);
+  loadLevel();
 #if REFLEX_EMULATE
   lastStepUs = micros();
 #else
   servo.attach(SERVO_PIN);
 #endif
-  setBeam(0);
+  setPulse(levelUs);
 #if !REFLEX_EMULATE
   Wire.begin();
   tof.setTimeout(100);
@@ -161,26 +243,29 @@ void setup()
     tof.startContinuous();
   }
 #endif
+  sendInfo();
 }
 
 void loop()
 {
-  /* 1. commands from the guardian */
+  /* 1. commands from the host */
   while (LINK.available()) {
     char c = (char)LINK.read();
     if (c == '\n' || c == '\r') {
       line[len] = 0;
-      long m;
-      if (!overflow && len > 0 && parseU(line, &m)) { setBeam(m); lastCmdMs = millis(); }
+      if (!overflow && len > 0) handleLine(line);
       len = 0; overflow = false;
     } else if (overflow) {
     } else if (len < sizeof(line) - 1) line[len++] = c;
     else overflow = true;
   }
 
-  /* 2. watchdog: nobody is talking to us -> level the beam */
+  /* 2. watchdog: nobody is commanding us -> level the beam; persist a new level pulse while parked */
   bool orphan = millis() - lastCmdMs > WATCHDOG_MS;
-  if (orphan) setBeam(0);
+  if (orphan) {
+    setPulse(levelUs);
+    if (levelUs != storedLevelUs && millis() - lastCmdMs > WATCHDOG_MS + 500) saveLevel(levelUs);
+  }
   digitalWrite(LED_BUILTIN, orphan ? ((millis() / 100) & 1) : LOW);
 
 #if REFLEX_EMULATE
@@ -190,33 +275,39 @@ void loop()
   if (sensorOk && (tof.readReg(VL53L0X::RESULT_INTERRUPT_STATUS) & 0x07)) {
     int mm = (int)tof.readRangeContinuousMillimeters();   /* data is ready: returns at once */
     lastReadingMs = millis();
-    lastMm = (tof.timeoutOccurred() || mm < RANGE_MIN_MM || mm > RANGE_MAX_MM) ? -1 : mm;
+    lastMm = (tof.timeoutOccurred() || mm <= 0 || mm > SENSOR_MAX_MM) ? -1 : mm;
   }
 #endif
 
-  /* 3. position report at 50 Hz */
+  /* 3. raw reading at 50 Hz */
   if (millis() - lastSendMs >= REPORT_MS) {
     lastSendMs = millis();
     char out[24];
 #if REFLEX_EMULATE
-    if (eLost) strcpy(out, "P !");
-    else snprintf(out, sizeof out, "P %ld", lroundf(ex * 1000.0f + (urand() * 2.0f - 1.0f) * NOISE_MM));
+    if (eLost || eRemoved) snprintf(out, sizeof out, "M %ld", lroundf(EMU_NOBALL_MM + (urand() * 2.0f - 1.0f) * NOISE_MM));
+    else {
+      long raw = lroundf(EMU_CENTER_MM + EMU_SENSOR_DIR * ex * 1000.0f + (urand() * 2.0f - 1.0f) * NOISE_MM);
+      snprintf(out, sizeof out, "M %ld", raw < 0 ? 0L : (raw > SENSOR_MAX_MM ? (long)SENSOR_MAX_MM : raw));
+    }
+    sendLine(out);
+    snprintf(out, sizeof out, "T %ld", lroundf(eth * 1000.0f));
+    sendLine(out);
 #else
     bool fresh = sensorOk && millis() - lastReadingMs < 100;
-    if (!fresh || lastMm < 0) strcpy(out, "P !");
-    else snprintf(out, sizeof out, "P %d", SENSOR_DIR * (lastMm - CENTER_MM));
-#endif
+    if (!fresh || lastMm < 0) strcpy(out, "M !");
+    else snprintf(out, sizeof out, "M %d", lastMm);
     sendLine(out);
+#endif
   }
 
-  /* 4. say who we are every 2 s (comment line, ignored by the guardian's parser) */
+  /* 4. say who we are every 2 s (comment line, ignored by the host's parser) */
   static unsigned long lastHello = 0;
   if (millis() - lastHello >= 2000) {
     lastHello = millis();
 #if REFLEX_EMULATE
-    sendLine("# reflex_io emulate=1");
+    sendLine("# reflex_io v2 emulate=1");
 #else
-    sendLine(sensorOk ? "# reflex_io emulate=0 sensor=ok" : "# reflex_io emulate=0 VL53L0X NOT FOUND - check wiring");
+    sendLine(sensorOk ? "# reflex_io v2 sensor=ok" : "# reflex_io v2 VL53L0X NOT FOUND - check wiring");
 #endif
   }
 }

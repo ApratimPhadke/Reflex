@@ -4,6 +4,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <sched.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,7 +35,10 @@ static void usage(void)
          "  latency                wake-up latency histogram of the guardian\n"
          "  hog <prio> <secs>      burn every CPU at the given priority (load test)\n"
          "  log <file.csv> <secs>  record telemetry\n"
-         "  campaign [file.md]     run the full fault campaign, with and without the guardian");
+         "  campaign [file.md]     run the full fault campaign, with and without the guardian\n"
+         "  caption [text]         show a banner on the dashboard (no text = clear it)\n"
+         "  wipe                   (no guardian running) delete the shared memory: fresh world and counters next start\n"
+         "  script <file> [--check] play a timed demo script (demo/video.rxs); --check only validates it");
 }
 
 /* ------------------------------------------------------------------ latency */
@@ -255,9 +259,102 @@ static void campaign(FILE *out)
             atomic_load(&shm->exec_max_ns) / 1e3, atomic_load(&shm->rejected_senders));
 }
 
+/* ------------------------------------------------------------------ script
+ * One step per line; '#' starts a comment line. Steps:
+ *   wait <seconds>            pause (decimals allowed)
+ *   wait-ai [seconds]         wait until the AI has been in control for 1.5 s (default timeout 15 s)
+ *   caption [text]            dashboard banner (empty = clear)
+ *   say <text>                cue for the operator, printed in the terminal only
+ *   inject <fault> [ms]       as rxctl inject
+ *   clear | release | reset | guard on|off | sp <mm>|auto | train on|off | period <ms>
+ * The whole file is checked before the first step runs. */
+static int script_step(const char *ln, int run, int lineno, double t0)
+{
+    char w[32] = "", a1[64] = "", a2[32] = "";
+    int k = sscanf(ln, "%31s %63s %31s", w, a1, a2);
+    if (k < 1) return 0;
+    const char *rest = ln;
+    while (*rest == ' ' || *rest == '\t') rest++;
+    rest += strlen(w);
+    while (*rest == ' ' || *rest == '\t') rest++;
+    double now = 0;
+    if (run) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); now = ts.tv_sec + ts.tv_nsec * 1e-9 - t0; }
+    if (!strcmp(w, "wait") || !strcmp(w, "wait-ai")) {
+        char *e; double sec = k >= 2 ? strtod(a1, &e) : (!strcmp(w, "wait-ai") ? 15.0 : -1);
+        if (k >= 2 && (*e || e == a1)) sec = -1;
+        if (!(sec >= 0 && sec <= 600)) { fprintf(stderr, "line %d: '%s' needs seconds (0..600)\n", lineno, w); return -1; }
+        if (!run) return 0;
+        printf("[%6.1f s] %s %.1f\n", now, w, sec); fflush(stdout);
+        if (!strcmp(w, "wait")) msleep((unsigned)(sec * 1000));
+        else if (!wait_ai((int)(sec * 1000))) printf("           (AI not back in control after %.0f s, continuing)\n", sec);
+        return 0;
+    }
+    if (!strcmp(w, "say")) { if (run) { printf("[%6.1f s] >>> %s\n", now, rest); fflush(stdout); } return 0; }
+    if (!strcmp(w, "caption")) { if (run) { char c[160]; snprintf(c, sizeof c, "caption %s", rest); rx_command(shm, c); printf("[%6.1f s] caption: %s\n", now, rest); fflush(stdout); } return 0; }
+    if (!strcmp(w, "inject")) {
+        static const char *const known[] = { "crash", "freeze", "nan", "huge", "flip", "stuck", "slow", "spin" };
+        int ok = 0; for (unsigned i = 0; i < sizeof known / sizeof known[0]; i++) ok |= k >= 2 && !strcmp(a1, known[i]);
+        if (!ok) { fprintf(stderr, "line %d: unknown fault '%s'\n", lineno, a1); return -1; }
+        if (!run) return 0;
+        printf("[%6.1f s] inject %s\n", now, a1); fflush(stdout);
+        if (rx_fault_apply(shm, a1, k >= 3 ? (uint32_t)atoi(a2) : 0) != 0) printf("           (no pilot to inject into)\n");
+        return 0;
+    }
+    int known = (!strcmp(w, "clear") || !strcmp(w, "release") || !strcmp(w, "reset")) && k == 1;
+    known |= !strcmp(w, "guard") && k == 2 && (!strcmp(a1, "on") || !strcmp(a1, "off"));
+    known |= !strcmp(w, "train") && k == 2 && (!strcmp(a1, "on") || !strcmp(a1, "off"));
+    known |= (!strcmp(w, "sp") || !strcmp(w, "period")) && k == 2;
+    if (!known) { fprintf(stderr, "line %d: unknown step '%s'\n", lineno, ln); return -1; }
+    if (!run) return 0;
+    char c[128];
+    if (!strcmp(w, "clear")) snprintf(c, sizeof c, "fault clear"); else snprintf(c, sizeof c, "%s", ln);
+    printf("[%6.1f s] %s\n", now, ln); fflush(stdout);
+    if (rx_command(shm, c) != 0) printf("           (rejected by the guardian)\n");
+    return 0;
+}
+
+static int cmd_script(const char *path, int check_only)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) { perror(path); return 1; }
+    char ln[256]; int lineno = 0, bad = 0, steps = 0;
+    while (fgets(ln, sizeof ln, f)) {                         /* pass 1: check everything */
+        lineno++; ln[strcspn(ln, "\r\n")] = 0;
+        char *p = ln; while (*p == ' ' || *p == '\t') p++;
+        if (!*p || *p == '#') continue;
+        if (script_step(p, 0, lineno, 0) != 0) bad++; else steps++;
+    }
+    if (bad) { fclose(f); fprintf(stderr, "rxctl: %s has %d bad line(s); nothing was run\n", path, bad); return 2; }
+    printf("%s: %d steps OK\n", path, steps);
+    if (check_only) { fclose(f); return 0; }
+    rewind(f); lineno = 0;
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    double t0 = ts.tv_sec + ts.tv_nsec * 1e-9;
+    while (fgets(ln, sizeof ln, f)) {                         /* pass 2: play it */
+        lineno++; ln[strcspn(ln, "\r\n")] = 0;
+        char *p = ln; while (*p == ' ' || *p == '\t') p++;
+        if (!*p || *p == '#') continue;
+        script_step(p, 1, lineno, t0);
+    }
+    fclose(f);
+    rx_command(shm, "caption");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "help")) { usage(); return argc < 2 ? 2 : 0; }
+    if (!strcmp(argv[1], "script") && argc >= 4 && !strcmp(argv[3], "--check")) return cmd_script(argv[2], 1);   /* no guardian needed */
+    if (!strcmp(argv[1], "wipe")) {                            /* fresh world and counters for the next guardian */
+        rx_shm_t *w = rx_shm_open(0);
+        if (w) {
+            pid_t g = atomic_load(&w->guardian_pid);
+            if (g > 0 && kill(g, 0) == 0) { fprintf(stderr, "rxctl: a guardian is running (pid %d); stop it first\n", (int)g); return 1; }
+        }
+        if (rx_shm_remove() != 0 && errno != ENOENT) { perror("rxctl: wipe"); return 1; }
+        printf("shared memory removed: the next guardian starts with a fresh world and counters\n");
+        return 0;
+    }
     shm = rx_shm_open(0);
     if (!shm) { fprintf(stderr, "rxctl: no running guardian found (%s)\n", strerror(errno)); return 1; }
     const char *c = argv[1];
@@ -283,6 +380,12 @@ int main(int argc, char **argv)
     else if (!strcmp(c, "endpoint")) printf("%d %d %.3f\n", atomic_load(&shm->guardian_pid), atomic_load(&shm->chid), shm->hz);
     else if (!strcmp(c, "hog") && argc >= 4) cmd_hog(atoi(argv[2]), atoi(argv[3]));
     else if (!strcmp(c, "log") && argc >= 4) cmd_log(argv[2], atoi(argv[3]));
+    else if (!strcmp(c, "caption")) {
+        char t[160] = "caption";
+        for (int i = 2; i < argc; i++) { strncat(t, " ", sizeof t - strlen(t) - 1); strncat(t, argv[i], sizeof t - strlen(t) - 1); }
+        rx_command(shm, t);
+    }
+    else if (!strcmp(c, "script") && argc >= 3) return cmd_script(argv[2], argc >= 4 && !strcmp(argv[3], "--check"));
     else if (!strcmp(c, "campaign")) {
         FILE *f = argc >= 3 ? fopen(argv[2], "w") : stdout;
         if (!f) { perror(argv[2]); return 1; }

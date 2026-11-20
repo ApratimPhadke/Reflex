@@ -25,6 +25,7 @@ rx_shm_t *rx_shm_open(int create)
     int fd = shm_open(RX_SHM_NAME, create ? (O_RDWR | O_CREAT) : O_RDWR, 0666);
     if (fd < 0) return NULL;
     if (create && ftruncate(fd, sizeof(rx_shm_t)) < 0) { close(fd); return NULL; }
+    if (create) (void)fchmod(fd, 0666);   /* a guardian started as root (HAM) must stay reachable for rxctl as a user */
     struct stat st;
     if (fstat(fd, &st) < 0 || (size_t)st.st_size < sizeof(rx_shm_t)) { close(fd); errno = EINVAL; return NULL; }
     rx_shm_t *s = mmap(NULL, sizeof(rx_shm_t), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -36,6 +37,8 @@ rx_shm_t *rx_shm_open(int create)
     if (!create && (s->magic != RX_MAGIC || s->version != RX_VERSION)) { munmap(s, sizeof *s); errno = EPROTO; return NULL; }
     return s;
 }
+
+int rx_shm_remove(void) { return shm_unlink(RX_SHM_NAME); }
 
 void rx_shm_defaults(rx_shm_t *s)
 {
@@ -118,6 +121,22 @@ int rx_fault_apply(rx_shm_t *s, const char *name, uint32_t arg)
 int rx_command(rx_shm_t *s, const char *line)
 {
     char a[32] = "", b[32] = ""; unsigned n = 0;
+    {   /* "caption <free text>" sets the dashboard banner, "caption" alone clears it */
+        const char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (!strncasecmp(p, "caption", 7) && (p[7] == 0 || p[7] == ' ' || p[7] == '\t' || p[7] == '\n')) {
+            p += 7;
+            while (*p == ' ' || *p == '\t') p++;
+            char t[sizeof s->caption];
+            size_t k = 0;
+            for (; *p && *p != '\n' && *p != '\r' && k < sizeof t - 1; p++) t[k++] = (*p >= 32 && *p < 127) ? *p : ' ';
+            t[k] = 0;
+            atomic_fetch_add(&s->caption_seq, 1);
+            memcpy(s->caption, t, sizeof t);
+            atomic_fetch_add(&s->caption_seq, 1);
+            return 0;
+        }
+    }
     int k = sscanf(line, "%31s %31s %u", a, b, &n);
     if (k < 1) return -1;
     if (!strcasecmp(a, "fault") && k >= 2) return rx_fault_apply(s, b, n);

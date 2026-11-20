@@ -15,10 +15,12 @@ Read `README.md`, `docs/ARCHITECTURE.md`, `docs/GUIDE.md` and `docs/HARDWARE.md`
 
 ```sh
 make && make test                      # Linux reference build + full offline test suite (must always pass)
-make test-serial                       # serial path end to end against tools/fake_io_node.py (~5 min)
+make test-serial                       # serial path end to end against tools/fake_io_node.py (~5 min, includes test-cal)
+make test-cal                          # rxcal wizard against a fake rig with a wrong hidden calibration (~35 s)
 make QNX=1 ARCH=aarch64                # QNX build for the Pi 4 (HAM=0 / TRACE=0 only if those libs are truly missing)
 make doctor [PI=...]                   # host + target readiness check
-PI=qnxuser@<ip> make deploy            # build for QNX and copy to ~/reflex on the target
+PI=qnxuser@<ip> make deploy            # build for QNX and copy to ~/reflex on the target (+ reflex-demo.sh, demo/)
+PI=qnxpi scripts/install-autostart.sh  # target boot hook: USB serial driver at boot (--demo / --remove / --status)
 make fw / make flash [EMULATE=1]       # firmware via arduino-cli + dfu-util (BOARD=BLACKPILL_F401CC default)
 python3 tools/train_policy.py          # retrain the simulator pilot (numpy from apt)
 python3 tools/train_policy.py --hardware   # retrain the serial-backend pilot (src/core/policy_weights_hw.h)
@@ -30,17 +32,20 @@ python3 tools/train_policy.py --hardware   # retrain the serial-backend pilot (s
 src/core/rx_core.c     safety kernel: recoverable-set bound, fallback controller, guard decision, plant model, frozen policy
 src/core/rx_learner.c  online evolution-strategy learner for the pilot
 src/core/rx_shm.c      shared-memory telemetry, event log, text commands (used by rxctl/rxdash/rxfs)
-src/core/rx_link.c     I/O node line protocol: strict parser + command formatter (pure, fuzzed by rx_linktest)
+src/core/rx_link.c     I/O node line protocol v2: strict parser + command formatter (pure, fuzzed by rx_linktest)
+src/core/rx_conf.c     reflex.conf: parse/check/format, raw mm/us <-> m/rad (pure except load/save)
 src/ipc/rx_ipc_qnx.c   QNX channel/pulse/Send-Receive-Reply backend  (QNX only)
 src/ipc/rx_ipc_posix.c Linux timerfd + SOCK_SEQPACKET backend (A/B baseline, host tests)
 src/guardian/main.c    the real-time guardian process
 src/guardian/rx_io.c   plant I/O: simulator and serial link to the I/O node
 src/pilot/main.c       untrusted pilot process (frozen or learning) with fault-injection hooks
-src/tools/             rxctl (CLI, campaign, flight recorder), rxdash (web UI), rx_simtest (tests)
+src/tools/             rxctl (CLI, campaign, script, flight recorder), rxdash (web UI), rxcal (calibration wizard), rx_simtest/rx_linktest (tests)
 src/qnx/               rxfs (resource manager /dev/reflex), rxham (High Availability Manager registration)
 firmware/reflex_io/    I/O node sketch (Black Pill / Arduino)
 tools/fake_io_node.py  fake I/O node on a pty (same plant as rx_plant_step), used by make test-serial
-scripts/               Ubuntu 24.04 setup, doctor, firmware build/flash, deploy
+scripts/               Ubuntu 24.04 setup, doctor, firmware build/flash, deploy, test-serial/test-cal, install-autostart
+scripts/target/        runs on the Pi: reflex-demo.sh (start|stop|status), boot hook, health-log.sh
+demo/video.rxs         the video as an rxctl script
 ```
 
 ## Invariants: never break these
