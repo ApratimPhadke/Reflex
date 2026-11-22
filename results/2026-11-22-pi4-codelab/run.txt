@@ -1,0 +1,24 @@
+QNX qnxpi 8.0.0 2026/06/05-16:21:14EDT RaspberryPi4B aarch64le
+$ ./guardian_lab
+[guardian pid 4001836] channel 1 (_NTO_CHF_FIXED_PRIORITY), timer pulse every 10 ms, running at priority 30
+[guardian] handling a message from a priority-10 client, the guardian runs at priority 30
+[guardian] tick  50: message from pid 4005937 refused (only pid 4005934 may propose)
+[spoofer pid 4005937] MsgSend refused: Operation not permitted
+[guardian] tick  50: disconnect pulse from another client (scoid 65539) - ignored
+[guardian] tick 100: 100 proposals accepted, 1 refused
+[pilot   pid 4005934] sent 150 proposals, last reply was tick 150; exiting
+[guardian] tick 150: disconnect pulse from the pilot - fall back to the safe controller
+[guardian] tick 200: 150 proposals accepted, 1 refused
+[guardian] done after 201 ticks: 150 proposals accepted, 1 refused
+
+$ ./guardian_lab --no-fixed
+[guardian pid 3989545] channel 1 (priority inheritance ON), timer pulse every 10 ms, running at priority 30
+[guardian] handling a message from a priority-10 client, the guardian runs at priority 10
+[guardian] tick  50: message from pid 4022318 refused (only pid 4022316 may propose)
+[spoofer pid 4022318] MsgSend refused: Operation not permitted
+[guardian] tick  50: disconnect pulse from another client (scoid 65539) - ignored
+[guardian] tick 100: 100 proposals accepted, 1 refused
+[pilot   pid 4022316] sent 150 proposals, last reply was tick 150; exiting
+[guardian] tick 150: disconnect pulse from the pilot - fall back to the safe controller
+[guardian] tick 200: 150 proposals accepted, 1 refused
+[guardian] done after 201 ticks: 150 proposals accepted, 1 refused
