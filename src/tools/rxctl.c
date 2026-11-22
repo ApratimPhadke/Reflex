@@ -289,7 +289,7 @@ static void campaign(FILE *out)
  *   caption [text]            dashboard banner (empty = clear)
  *   say <text>                cue for the operator, printed in the terminal only
  *   inject <fault> [ms]       as rxctl inject
- *   clear | release | reset | guard on|off | sp <mm>|auto | train on|off | period <ms>
+ *   clear | release | reset | guard on|off | fallback on|off | sp <mm>|auto | train on|off | period <ms>
  * The whole file is checked before the first step runs. */
 static int script_step(const char *ln, int run, int lineno, double t0)
 {
@@ -326,6 +326,7 @@ static int script_step(const char *ln, int run, int lineno, double t0)
     int known = (!strcmp(w, "clear") || !strcmp(w, "release") || !strcmp(w, "reset")) && k == 1;
     known |= !strcmp(w, "guard") && k == 2 && (!strcmp(a1, "on") || !strcmp(a1, "off"));
     known |= !strcmp(w, "train") && k == 2 && (!strcmp(a1, "on") || !strcmp(a1, "off"));
+    known |= !strcmp(w, "fallback") && k == 2 && (!strcmp(a1, "on") || !strcmp(a1, "off"));
     known |= (!strcmp(w, "sp") || !strcmp(w, "period")) && k == 2;
     if (!known) { fprintf(stderr, "line %d: unknown step '%s'\n", lineno, ln); return -1; }
     if (!run) return 0;

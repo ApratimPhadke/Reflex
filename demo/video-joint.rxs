@@ -1,0 +1,24 @@
+# Reflex video, part 2: the same guardian on a second plant, a simulated robot joint with a gravity load.
+#   ./reflex-demo.sh start --plant joint ; ./rxctl script demo/video-joint.rxs
+caption
+guard on
+wait-ai 20
+caption Same guardian, different machine: a robot joint lifting a load (simulated)
+wait 5
+caption The AI's torque command sticks at full power. Guardian ON:
+inject stuck
+wait 5
+clear
+wait-ai 15
+caption Same fault, guardian OFF: the joint slams into its stop
+guard off
+inject stuck
+wait 4
+clear
+guard on
+wait-ai 15
+caption One kernel, one plant table: an exoskeleton, a rehab robot, a surgical arm
+wait 6
+caption Open source: github.com/ApratimPhadke/Reflex
+wait 5
+caption

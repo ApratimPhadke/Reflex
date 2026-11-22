@@ -1,0 +1,16 @@
+   24.00s ago  tick 508       AI back in control
+   15.87s ago  tick 8642      guardian took over (envelope)
+   15.12s ago  tick 9391      AI back in control
+   14.77s ago  tick 9736      guardian took over (envelope)
+   14.00s ago  tick 10504     AI back in control
+   13.69s ago  tick 10814     guardian took over (envelope)
+   12.95s ago  tick 11558     AI back in control
+   12.64s ago  tick 11871     guardian took over (envelope)
+   11.89s ago  tick 12622     AI back in control
+   11.44s ago  tick 13068     guardian took over (envelope)
+   10.47s ago  tick 14040     BALL LOST
+    8.59s ago  tick 15917     BALL LOST
+    6.94s ago  tick 17570     BALL LOST
+    5.32s ago  tick 19188     AI back in control
+interventions     5 total
+balls lost        3

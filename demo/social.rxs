@@ -1,0 +1,22 @@
+# Reflex: 30-second social clip (Community Choice). Script and shot list: docs/SOCIAL_CLIP.md
+caption
+train off
+guard on
+wait-ai 20
+say START RECORDING NOW (phone on the beam, dashboard in presentation mode behind it)
+wait 2
+caption This AI is about to fail on purpose.
+wait 3
+inject flip
+caption Guardian ON: the ball stays.
+wait 5
+clear
+caption Guardian OFF:
+guard off
+inject flip
+wait 5
+clear
+guard on
+caption Reflex on QNX: AI you can let near a real machine.
+wait 6
+caption

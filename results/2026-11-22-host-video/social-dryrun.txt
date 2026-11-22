@@ -1,0 +1,22 @@
+demo/social.rxs: 21 steps OK
+[   0.0 s] caption: 
+[   0.0 s] train off
+[   0.0 s] guard on
+[   0.0 s] wait-ai 20.0
+[   1.5 s] >>> START RECORDING NOW (phone on the beam, dashboard in presentation mode behind it)
+[   1.5 s] wait 2.0
+[   3.5 s] caption: This AI is about to fail on purpose.
+[   3.5 s] wait 3.0
+[   6.5 s] inject flip
+[   6.5 s] caption: Guardian ON: the ball stays.
+[   6.5 s] wait 5.0
+[  11.5 s] clear
+[  11.5 s] caption: Guardian OFF:
+[  11.5 s] guard off
+[  11.5 s] inject flip
+[  11.5 s] wait 5.0
+[  16.5 s] clear
+[  16.5 s] guard on
+[  16.5 s] caption: Reflex on QNX: AI you can let near a real machine.
+[  16.5 s] wait 6.0
+[  22.5 s] caption: 

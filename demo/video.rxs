@@ -1,33 +1,42 @@
 # Reflex: the video, as a script.   ./rxctl script demo/video.rxs   (check first: --check)
-# Follows the storyline in docs/SUBMISSION.md. Start the demo first (./reflex-demo.sh start, add --learn
-# for the opening shot) and put the dashboard full-screen beside the camera. Captions appear as a banner
-# on the dashboard; lines starting with "say" are cues for you in the terminal and are not shown.
-# Steps that need hands (killing the guardian, pulling the cable) wait for you with a cue.
+# Dashboard in presentation mode beside the beam: http://<pi>:8080/?present  (or press P).
+# Before recording: ./reflex-demo.sh start, then ./rxctl bench once, so the dashboard's
+# "Is the AI worth having?" card shows numbers measured on THIS plant.
+# Captions appear on the dashboard; "say" lines are cues for you in this terminal only.
+# Part 2 (the second plant) is demo/video-joint.rxs.
 
-caption Reflex: an untrusted neural network flies an unstable plant on QNX 8.0
-train on
-wait-ai 20
-wait 8
-caption Every command is checked one control period ahead before it reaches the actuator
-wait 10
-
-# 0:50  without the guardian, one bad output ends it
-caption Guardian BYPASSED: the same AI, a sign-inverted output
-guard off
-wait 2
-inject flip
-wait 4
-clear
+# ---- pre-roll, not recorded
+caption
+train off
+sp auto
 guard on
-caption Guardian back on: wait for the AI to earn control again
-wait-ai 15
-caption Same fault, guardian ON: caught before the ball can fall
+wait-ai 20
+say START RECORDING NOW
+wait 3
+
+# ---- 0:00 the hook: break the AI live, the ball survives; same fault without the guardian, it falls
+caption An untrusted AI flies this machine. Watch what happens when it breaks.
 inject flip
 wait 5
 clear
+caption Same fault, guardian OFF:
+guard off
+inject flip
+wait 5
+clear
+guard on
+caption Reflex on QNX 8.0: every AI command is checked one step ahead
 wait-ai 15
 
-# 1:10  kill it, freeze it, feed it garbage
+# ---- why have the AI at all
+caption The fallback controller alone: safe, but slow
+fallback on
+wait 9
+caption The AI pilot, same setpoints: faster (measured: see the card)
+fallback off
+wait 9
+
+# ---- kill it, freeze it, feed it garbage
 caption Kill the AI: the kernel tells the guardian that very tick
 inject crash
 wait 4
@@ -37,26 +46,26 @@ inject freeze
 wait 4
 clear
 wait-ai 15
-caption NaN on the wire: refused, fallback flies, AI back when healthy
+caption NaN on the wire: refused, the fallback flies
 inject nan
 wait 3
 clear
 wait-ai 15
 
-# 1:35  the QNX part: shown in a terminal, not scriptable from here
+# ---- the QNX part (terminal)
 caption One MsgReceive gets the timer pulse and the AI's message: no locks, no timeouts
-say TERMINAL: pidin -p reflex-pilot ; cat /dev/reflex   (about 25 s)
-wait 25
+say TERMINAL: pidin -p reflex-pilot ; cat /dev/reflex   (about 20 s)
+wait 20
 
-# 2:10  who guards the guardian
+# ---- who guards the guardian
 caption Who guards the guardian? HAM restarts it from shared memory
 say NOW: sudo slay -s KILL reflex-guardian   (HAM restarts it; the ball stays)
-wait 12
-caption If the whole computer stops talking, the I/O node levels the beam by itself
+wait 10
+caption If the computer goes silent, the I/O node levels the beam by itself
 say NOW: pull the Black Pill's USB cable for 3 s, then plug it back in
-wait 12
+wait 10
 wait-ai 20
-
-caption Open source: github.com/ApratimPhadke/Reflex
-wait 5
+caption Next: the same guardian on a different machine
+say NOW: ./reflex-demo.sh stop ; ./reflex-demo.sh start --plant joint ; ./rxctl script demo/video-joint.rxs
+wait 3
 caption

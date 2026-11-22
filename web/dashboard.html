@@ -21,19 +21,30 @@ button:hover{border-color:var(--dim)}button b{display:block}button small{color:v
 button.wide{grid-column:1/-1;text-align:center}button.danger{border-color:#6e2b2b}button.on{border-color:var(--warn);color:var(--warn)}
 #banner{display:none;grid-column:1/-1;background:#3d1d1d;border:1px solid var(--bad);color:#ffb3ad;border-radius:10px;padding:10px 14px;font-weight:600}
 .legend{display:flex;gap:14px;color:var(--dim);font-size:12px;margin-top:6px;flex-wrap:wrap}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+/* presentation mode (?present or key P): readable from across a room, for the video */
+#bigstats{display:none;grid-column:1/-1;grid-template-columns:repeat(4,1fr);gap:14px}
+#bigstats div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px}
+#bigstats b{display:block;font-size:44px;line-height:1.1;font-variant-numeric:tabular-nums}#bigstats span{color:var(--dim);font-size:15px}
+body.present header h1 small,body.present .side,body.present .cmdcard{display:none}
+body.present header{padding:16px 28px}body.present h1{font-size:30px}
+body.present #badge{font-size:46px;padding:12px 40px;border-width:4px}
+body.present main{grid-template-columns:1fr;max-width:none;padding:18px 28px}
+body.present #caption{font-size:38px;padding:20px 26px}body.present #banner{font-size:24px}
+body.present #bigstats{display:grid}body.present .chip{font-size:16px}
 </style></head><body>
 <header><h1>REFLEX<small>runtime assurance for physical AI on QNX</small></h1><span class="chip" id="cbackend">backend</span><span class="chip" id="clink" style="display:none"></span><span class="chip" id="ccal" style="display:none"></span><div id="badge">connecting</div></header>
 <main>
 <div id="caption"></div>
 <div id="banner"></div>
+<div id="bigstats"><div><b id="bs0">-</b><span id="bl0">balls lost</span></div><div><b id="bs1">-</b><span>guardian take-overs</span></div><div><b id="bs2">-</b><span>worst wake-up latency</span></div><div><b id="bs3">-</b><span>control rate</span></div></div>
 <div>
   <div class="card"><h2>Plant</h2><canvas id="beam" height="210"></canvas></div>
   <div class="card" style="margin-top:14px"><h2>Ball position vs setpoint (last 10 s)</h2><canvas id="pos" height="170"></canvas>
     <div class="legend"><span><i style="background:#e6edf3"></i>ball</span><span><i style="background:#8b949e"></i>setpoint</span><span><i style="background:#f8514944"></i>keep-out strip</span><span><i style="background:#3fb95055"></i>guardian in control</span></div></div>
-  <div class="card" style="margin-top:14px"><h2>Command: what the AI asked for vs what reached the actuator</h2><canvas id="cmd" height="150"></canvas>
+  <div class="card cmdcard" style="margin-top:14px"><h2>Command: what the AI asked for vs what reached the actuator</h2><canvas id="cmd" height="150"></canvas>
     <div class="legend"><span><i style="background:#58a6ff"></i>pilot proposal</span><span><i style="background:#3fb950"></i>actuator command</span></div></div>
 </div>
-<div>
+<div class="side">
   <div class="card"><h2>Guardian</h2><div class="kv" id="kv"></div></div>
   <div class="card" style="margin-top:14px"><h2>Wake-up latency histogram</h2><canvas id="hist" height="130"></canvas></div>
   <div class="card" style="margin-top:14px" id="learncard"><h2>Learning on the live plant</h2><canvas id="learn" height="120"></canvas>
@@ -64,7 +75,7 @@ button.wide{grid-column:1/-1;text-align:center}button.danger{border-color:#6e2b2
 const $=id=>document.getElementById(id);let S=null;
 function cmd(c){fetch('/api/cmd?'+encodeURIComponent(c)).catch(()=>{})}
 function toggleGuard(){cmd('guard '+(S&&S.guard?'off':'on'))}
-function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute('height');if(c.width!==w*r){c.width=w*r;c.height=h*r}const g=c.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return[g,w,h]}
+function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute('height');if(c.width!==w*r||c.height!==h*r){c.width=w*r;c.height=h*r}const g=c.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return[g,w,h]}
 const MC={AI:'#58a6ff',SAFE:'#3fb950',BYPASS:'#f85149'};
 function drawJoint(){const[g,w,h]=fit($('beam'));const r=S.recs[S.recs.length-1],L=S.half_len,E=0.05;
  const x=(r[9]!==null?r[9]:r[1]),cx=w/2,cy=h*0.78,R=Math.min(h*0.62,w*0.3),ang=a=>-Math.PI/2+a;
@@ -95,7 +106,13 @@ function chips(){const ser=S.backend==='serial';const be=$('cbackend');be.innerH
  const l=$('clink'),c=$('ccal');l.style.display=c.style.display=ser?'inline':'none';
  if(ser){l.innerHTML='I/O link <b>'+(S.node_link?'up':'DOWN')+'</b>';l.className='chip '+(S.node_link?'ok':'bad');c.innerHTML='calibrated <b>'+(S.calibrated_at||'?')+'</b>';c.className='chip'+(S.calibrated_at==='uncalibrated'?' bad':'')}
  const cp=$('caption');cp.style.display=S.caption?'block':'none';cp.textContent=S.caption||''}
-function kv(){if(!S)return;chips();const iv=Object.entries(S.interventions).filter(e=>e[1]).map(e=>e[0]+' '+e[1]).join(', ')||'none';
+function bigstats(){if(!S)return;const iv=Object.values(S.interventions).reduce((a,b)=>a+b,0);$('bs0').textContent=S.balls_lost;
+ $('bl0').textContent=S.plant==='joint'?'joint limit hits':'balls lost';$('bs0').style.color=S.balls_lost?'var(--bad)':'var(--safe)';
+ $('bs1').textContent=iv;$('bs2').textContent=S.lat_max_us.toFixed(0)+' us';$('bs3').textContent=S.hz+' Hz'}
+function setPresent(on){document.body.classList.toggle('present',on);$('beam').setAttribute('height',on?380:210);$('pos').setAttribute('height',on?220:170)}
+setPresent(/[?&]present/.test(location.search));
+document.addEventListener('keydown',e=>{if(e.key==='p'||e.key==='P')setPresent(!document.body.classList.contains('present'))});
+function kv(){if(!S)return;chips();bigstats();const iv=Object.entries(S.interventions).filter(e=>e[1]).map(e=>e[0]+' '+e[1]).join(', ')||'none';
  const rows=[['Mode',S.mode+' ('+S.reason+')'],['Control rate',S.hz+' Hz, '+S.backend],['Wake latency max',(S.lat_max_us).toFixed(1)+' us'],['Late ticks',S.deadline_miss],['Guardian exec max',S.exec_max_us.toFixed(1)+' us'],['Ticks',S.ticks.toLocaleString()],['Interventions',iv],['Pilot',S.pilot_present?('pid '+S.pilot_pid):'absent'],['Pilot restarts / kills',S.pilot_restarts+' / '+S.pilot_kills],['Injected fault',S.fault],[S.plant==='joint'?'Joint limit hits':'Balls lost',S.balls_lost],['Guardian starts',S.guardian_starts]];
  $('kv').innerHTML=rows.map(r=>'<span>'+r[0]+'</span><span>'+r[1]+'</span>').join('');
  const b=$('badge');b.textContent=S.mode==='AI'?'AI IN CONTROL':S.mode==='SAFE'?'GUARDIAN IN CONTROL':'GUARDIAN BYPASSED';b.style.color=MC[S.mode];b.style.borderColor=MC[S.mode];
