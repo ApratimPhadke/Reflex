@@ -2,72 +2,85 @@
 
 The same steps as the Whiteboard flowchart, as a checklist. Deadline 16 Dec 2026 00:30 IST; aim to submit by 13 Dec. A check that fails sends you to its fix; then retry the step before it.
 
+Ticked items are evidenced in `results/` or the repository (as of 22 Nov 2026). Unticked items in A-B need you
+to confirm them (rules read, registration, parts ordered, `make doctor`, repository public).
+
+## Software upgrades (done, branch `feature/judging-upgrades`)
+
+- [x] `rxctl bench`: AI vs fallback alone (`results/2026-11-20-host-bench/`, `results/2026-11-20-pi4-bench/`)
+- [x] Second plant, simulated robot joint (`results/2026-11-22-host-joint/`, `results/2026-11-22-pi4-joint/`)
+- [x] `docs/IMPACT.md`, `docs/codelab/` (verified on the Pi), `docs/JUDGE_QA.md`, `docs/SOCIAL_CLIP.md`
+- [x] Video scripts with the hook first; dashboard presentation mode
+- [x] `rxctl stuck` margin check; reboot analysis (`results/2026-11-22-reboot-analysis/`)
+- [ ] `rxctl bench` on the Black Pill over USB (board was off the Pi's USB bus)
+- [ ] Decide `t_delay` from the real beam (stuck fault: 1 of 28 fake-node runs entered the strip)
+
 ## A · Accounts, parts and laptop · 18-20 Nov
 
 - [ ] **A1** Read the Devpost **Rules** tab fully: eligibility, AI use, new-repo rule
 - [ ] **A2** Confirm you are registered at qnx.devpost.com
 - [ ] **A3** Order the BOM **today**: Probots, Robocraze, local hardware shop
-- [ ] **A4** Unzip Reflex v4 to `~/reflex`, then `git init` and first commit
-- [ ] **A5** `make setup` (Ubuntu 24.04 script), then log out and back in
-- [ ] **A6** Create a myQNX account at qnx.com/getqnx
-- [ ] **A7** Request the free non-commercial SDP 8.0 licence, deploy it to yourself
-- [ ] **A8** Install QNX Software Center (`.run` file, normal user, no sudo)
-- [ ] **A9** Install QNX SDP 8.0, latest 8.0.x (8.0.2+), to `~/qnx800`
-- [ ] **A10** Install packages `quickstart.rpi4` and `quickstart.qemu`
-- [ ] **A11** `source ~/qnx800/qnxsdp-env.sh`, add it to `~/.bashrc`
+- [x] **A4** Unzip Reflex v4 to `~/reflex`, then `git init` and first commit
+- [x] **A5** `make setup` (Ubuntu 24.04 script), then log out and back in
+- [x] **A6** Create a myQNX account at qnx.com/getqnx
+- [x] **A7** Request the free non-commercial SDP 8.0 licence, deploy it to yourself
+- [x] **A8** Install QNX Software Center (`.run` file, normal user, no sudo)
+- [x] **A9** Install QNX SDP 8.0, latest 8.0.x (8.0.2+), to `~/qnx800`
+- [x] **A10** Install packages `quickstart.rpi4` and `quickstart.qemu`
+- [x] **A11** `source ~/qnx800/qnxsdp-env.sh`, add it to `~/.bashrc`
 - [ ] **Check:** `make doctor`: no FAIL?  
       *If not:* Read the FAIL line, fix that item or rerun `make setup`
 - [ ] **Milestone: Laptop ready**
 
 ## B · QNX on the Raspberry Pi 4 · 20-22 Nov
 
-- [ ] **B1** Find the image: `find ~/qnx800 -name "*quickstart*.img*"`
-- [ ] **B2** `rpi-imager`: Use custom, pick the `.img`, write to the 32 GB SD card
-- [ ] **B3** Wi-Fi: follow the QSTI guide, or just use an Ethernet cable
-- [ ] **B4** SD card in, Ethernet in, power with the official 5.1 V 3 A supply
-- [ ] **B5** Find the Pi's IP: router page, monitor, or `ping qnxpi.local`
-- [ ] **B6** `ssh qnxuser@<ip>` (password `qnxuser`)
-- [ ] **Check:** `uname -a` says QNX 8.0?  
+- [x] **B1** Find the image: `find ~/qnx800 -name "*quickstart*.img*"`
+- [x] **B2** `rpi-imager`: Use custom, pick the `.img`, write to the 32 GB SD card
+- [x] **B3** Wi-Fi: follow the QSTI guide, or just use an Ethernet cable
+- [x] **B4** SD card in, Ethernet in, power with the official 5.1 V 3 A supply
+- [x] **B5** Find the Pi's IP: router page, monitor, or `ping qnxpi.local`
+- [x] **B6** `ssh qnxuser@<ip>` (password `qnxuser`)
+- [x] **Check:** `uname -a` says QNX 8.0?  
       *If not:* Reflash. Check it is the rpi4 image and the supply is official
-- [ ] **B7** `ssh-copy-id qnxuser@<ip>`, then `export PI=qnxuser@<ip>`
-- [ ] **Check:** `PI=$PI make doctor` SSH passes?  
+- [x] **B7** `ssh-copy-id qnxuser@<ip>`, then `export PI=qnxuser@<ip>`
+- [x] **Check:** `PI=$PI make doctor` SSH passes?  
       *If not:* Check IP, network, ssh-copy-id; try Ethernet
 - [ ] **B8** On GitHub: new **public** repo `reflex`, MIT licence
-- [ ] **B9** `git remote add origin ...` and push the baseline
+- [x] **B9** `git remote add origin ...` and push the baseline
 - [ ] **Milestone: QNX target ready**
 
 ## C · Software on QNX with Claude Code · 21-25 Nov
 
-- [ ] **C1** In `~/reflex`: source env, `export PI`, run `claude`
-- [ ] **C2** Tell it: *Read docs/CLAUDE_CODE_PROMPT.md and carry it out*
-- [ ] **C3** Phase 0: read its report, answer its questions, say *continue*
-- [ ] **C4** Phase 1: it builds for QNX and fixes every error
-- [ ] **Check:** QNX build: 0 errors, 0 warnings?  
+- [x] **C1** In `~/reflex`: source env, `export PI`, run `claude`
+- [x] **C2** Tell it: *Read docs/CLAUDE_CODE_PROMPT.md and carry it out*
+- [x] **C3** Phase 0: read its report, answer its questions, say *continue*
+- [x] **C4** Phase 1: it builds for QNX and fixes every error
+- [x] **Check:** QNX build: 0 errors, 0 warnings?  
       *If not:* Let it fix; paste errors; HAM=0 only if the lib is missing
-- [ ] **C5** Phase 2: it runs all ten checks on the Pi, simulated plant
-- [ ] **C6** You: open `http://<pi-ip>:8080`, inject flip, guard on vs off
-- [ ] **Check:** Campaign: ball kept 8/8 guarded?  
+- [x] **C5** Phase 2: it runs all ten checks on the Pi, simulated plant
+- [x] **C6** You: open `http://<pi-ip>:8080`, inject flip, guard on vs off
+- [x] **Check:** Campaign: ball kept 8/8 guarded?  
       *If not:* Claude Code debugs on the target; do not edit tests
-- [ ] **C7** Learning from scratch, 10 min, 0 balls lost
-- [ ] **C8** Logs in `results/...-pi4-sim/`, commit and push
-- [ ] **Milestone: A valid entry exists: sim on real QNX**
+- [x] **C7** Learning from scratch, 10 min, 0 balls lost
+- [x] **C8** Logs in `results/...-pi4-sim/`, commit and push
+- [x] **Milestone: A valid entry exists: sim on real QNX**
 
 ## D · Serial path, calibration, demo tooling · 25-30 Nov
 
-- [ ] **D1** Read the chip on the Black Pill (F411CE or F401CC), tell Claude Code
-- [ ] **D2** Phase 3: fake I/O node, `make test-serial` on the laptop
-- [ ] **D3** Black Pill to laptop: hold BOOT0, tap NRST, release = DFU
-- [ ] **D4** `make fw EMULATE=1 && make flash` (board simulates the beam)
-- [ ] **D5** Plug the Black Pill into the Pi; look for `/dev/serusb*`
-- [ ] **Check:** Guardian runs over serial vs emulated board?  
+- [x] **D1** Read the chip on the Black Pill (F411CE or F401CC), tell Claude Code
+- [x] **D2** Phase 3: fake I/O node, `make test-serial` on the laptop
+- [x] **D3** Black Pill to laptop: hold BOOT0, tap NRST, release = DFU
+- [x] **D4** `make fw EMULATE=1 && make flash` (board simulates the beam)
+- [x] **D5** Plug the Black Pill into the Pi; look for `/dev/serusb*`
+- [x] **Check:** Guardian runs over serial vs emulated board?  
       *If not:* USB serial driver, or UART fallback: HARDWARE Part 8
-- [ ] **D6** Unplug and replug the cable: guardian survives, reconnects
-- [ ] **D7** Phase 4: protocol v2, `reflex.conf`, `rxcal` wizard
-- [ ] **Check:** `rxcal` finds wrong values on the fake node?  
+- [x] **D6** Unplug and replug the cable: guardian survives, reconnects
+- [x] **D7** Phase 4: protocol v2, `reflex.conf`, `rxcal` wizard
+- [x] **Check:** `rxcal` finds wrong values on the fake node?  
       *If not:* Claude Code fixes rxcal before going on
-- [ ] **D8** Phase 5: `reflex-demo.sh`, dashboard status, `video.rxs` script
-- [ ] **D9** Cold-boot the Pi, `./reflex-demo.sh start` works
-- [ ] **Milestone: Software is plug-and-play**
+- [x] **D8** Phase 5: `reflex-demo.sh`, dashboard status, `video.rxs` script
+- [x] **D9** Cold-boot the Pi, `./reflex-demo.sh start` works
+- [x] **Milestone: Software is plug-and-play**
 
 ## E · Mechanical build (parts have arrived) · 26 Nov-1 Dec
 
