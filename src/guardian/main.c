@@ -274,7 +274,7 @@ int main(int argc, char **argv)
         if (old > 0) kill(old, SIGKILL);
         atomic_store(&shm->pilot_pid, 0);
     }
-    shm->hz = cfg.hz; shm->half_len = cfg.half_len; shm->theta_max = cfg.theta_max;
+    shm->hz = cfg.hz; shm->half_len = cfg.half_len; shm->theta_max = cfg.theta_max; shm->edge_margin = cfg.edge_margin;
     snprintf(shm->backend, sizeof shm->backend, "%s", o.backend);
     snprintf(shm->plant, sizeof shm->plant, "%s", rx_plant_ops(cfg.plant)->name);
     snprintf(shm->calibrated_at, sizeof shm->calibrated_at, "%s", serial ? (o.uncalibrated ? "uncalibrated" : conf.calibrated_at) : "-");

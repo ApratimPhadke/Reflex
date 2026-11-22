@@ -167,6 +167,7 @@ typedef struct {
         uint32_t interventions[2], unsettled[2];
     } bench;
     char  plant[16];                        /* "beam" or "joint" (written once at start) */
+    float edge_margin;                      /* keep-out strip before each end [plant units] (written once at start) */
 } rx_shm_t;
 
 #endif

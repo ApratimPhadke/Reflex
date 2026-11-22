@@ -41,11 +41,15 @@ settles; `./rxctl inject flip` with the guardian on keeps the ball; pulling the 
 within 150 ms; `sudo slay -s KILL reflex-guardian` is restarted by HAM.
 
 **6. Measure the margin before trusting it.** The stuck-at-full-tilt fault is the worst case the safety
-margin is sized for; on the fake node it came within 10.0-14.1 mm of the end against the 10 mm keep-out
-strip (`results/2026-11-20-host-hw-pilot/`). On the real beam, film `./rxctl inject stuck` a few times
-side-on with a ruler in frame. If the ball enters the last 10 mm, stop and bring the footage: the
-actuator delay `t_delay` in `rx_cfg_hardware()` (0.12 s) then needs to be set from the measured delay,
-and that is a safety-margin change to decide with data, not to tweak.
+margin is sized for. One command runs it N times and prints PASS/FAIL against the 10 mm strip:
+```sh
+./rxctl stuck 10 stuck-real.md        # guardian on; the beam is driven to full tilt 10 times - hands clear
+```
+On the fake node one run in 28 entered the strip (4.3 mm, ball kept) and the guardian's estimate read 4-8 mm
+closer than the truth (`results/2026-11-22-host-stucktest/`). So film the beam side-on with a ruler in frame
+as well. If the ball enters the last 10 mm, stop and bring the file and the footage: the actuator delay `t_delay`
+in `rx_cfg_hardware()` (0.12 s) then needs to be set from the measured delay, and that is a safety-margin change
+to decide with data, not to tweak.
 
 **7. Evidence.** Raw logs of every run go to `results/<date>-pi4-real/` with `uname -a`, the git hash and
 the exact commands (`./rxctl campaign campaign.md`, `./rxctl latency`, `./rxctl events`).

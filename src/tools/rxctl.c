@@ -39,6 +39,7 @@ static void usage(void)
          "  caption [text]         show a banner on the dashboard (no text = clear it)\n"
          "  wipe                   (no guardian running) delete the shared memory: fresh world and counters next start\n"
          "  fallback on|off        fly on the fallback controller alone (the pilot keeps running, ignored)\n"
+         "  stuck [N] [f.md]       inject stuck-at-full-tilt N times (default 5), report closest approach vs the strip, PASS/FAIL\n"
          "  bench [f.md] [--csv f] [--hold s]  same setpoint sequence with the AI, then fallback-only; compare\n"
          "  script <file> [--check] play a timed demo script (demo/video.rxs); --check only validates it");
 }
@@ -478,6 +479,61 @@ static int cmd_bench(FILE *out, const char *csv_path, double hold_s)
     return 0;
 }
 
+
+/* ------------------------------------------------------------------ stuck
+ * Hardware-day check of the thinnest margin: the stuck-at-full-tilt fault is the adversary the recoverable-set
+ * bound is sized for. Inject it N times with the guardian ON, each time 1 s after the setpoint square wave turns
+ * positive (the phase where the fake node showed the closest approach), and report how close the plant came to
+ * the end against the keep-out strip. Simulator: ground truth. Serial backend: the guardian's estimate, which
+ * includes sensor noise, so also film the beam side-on with a ruler (docs/HARDWARE_DAY.md step 6). */
+static int cmd_stuck(FILE *out, int n_runs)
+{
+    const int joint = !strcmp(shm->plant, "joint");
+    const double us = joint ? 57.29578 : 1000.0, strip = shm->edge_margin > 0 ? shm->edge_margin : (joint ? 0.05 : 0.010);
+    const char *U = joint ? "deg" : "mm";
+    const int truth = !strcmp(shm->backend, "sim");
+    double worst = 1e9; int ok = 0, lost_total = 0;
+    atomic_store(&shm->sp_auto, 1);
+    rx_command(shm, "train off"); rx_command(shm, "period 4000");
+    fprintf(out, "# Stuck-at-full-tilt check: closest approach to the end, guardian ON\n\n");
+    fprintf(out, "- backend `%s`, plant `%s`, %.0f Hz; position: %s\n", shm->backend, joint ? "joint" : "beam", shm->hz,
+            truth ? "simulator ground truth" : "the guardian's estimate (includes sensor noise: confirm on video)");
+    fprintf(out, "- keep-out strip: %.1f %s before each end; each run: fault for 4 s, 1 s after the setpoint turns positive\n\n", strip * us, U);
+    fprintf(out, "| run | closest to the end | margin over the strip | ball/joint |\n|---|---|---|---|\n");
+    for (int k = 0; k < n_runs; k++) {
+        rx_command(shm, "fault clear"); rx_command(shm, "guard on"); rx_command(shm, "release");
+        if (!wait_ai(15000)) fprintf(stderr, "stuck: warning, the AI did not take control before run %d\n", k + 1);
+        { rx_rec_t r; float prev = 1; for (int t = 0; t < 12000; t += 5) { uint64_t h = atomic_load(&shm->head);
+            if (h && rx_shm_get(shm, h - 1, &r)) { if (prev < 0 && r.sp > 0) break; prev = r.sp; } msleep(5); } msleep(1000); }
+        unsigned b0 = atomic_load(&shm->balls_lost);
+        uint64_t idx = atomic_load(&shm->head), t_inj = rx_now_ns(), end = t_inj + 4000000000ull;
+        double edge = 1e9;
+        if (rx_fault_apply(shm, "stuck", 0) != 0) { fprintf(stderr, "stuck: could not inject (%s)\n", strerror(errno)); return 1; }
+        while (rx_now_ns() < end) {
+            uint64_t h = atomic_load(&shm->head); rx_rec_t r;
+            for (; idx < h; idx++) {
+                if (!rx_shm_get(shm, idx, &r) || r.t_ns < t_inj) continue;
+                double x = isfinite(r.x_true) ? r.x_true : r.x;
+                if (isfinite(x) && shm->half_len - fabs(x) < edge) edge = shm->half_len - fabs(x);
+            }
+            msleep(10);
+        }
+        rx_command(shm, "fault clear");
+        int lost = (int)(atomic_load(&shm->balls_lost) - b0);
+        lost_total += lost;
+        if (edge < worst) worst = edge;
+        if (edge > strip && !lost) ok++;
+        fprintf(out, "| %d | %.1f %s | %+.1f %s | %s |\n", k + 1, edge * us, U, (edge - strip) * us, U, lost ? "**LOST**" : "kept");
+        fflush(out);
+        msleep(1500);
+    }
+    int pass = ok == n_runs && lost_total == 0;
+    fprintf(out, "\n**%s: closest approach %.1f %s against a %.1f %s strip; %d of %d runs outside the strip%s.**\n",
+            pass ? "PASS" : "FAIL", worst * us, U, strip * us, U, ok, n_runs, lost_total ? ", ball/joint lost" : "");
+    if (!pass) fprintf(out, "\nDo not tune anything: bring this file and the video (docs/HARDWARE_DAY.md step 6). The bound's t_delay must come from the measured delay.\n");
+    return pass ? 0 : 3;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "help")) { usage(); return argc < 2 ? 2 : 0; }
@@ -534,6 +590,16 @@ int main(int argc, char **argv)
         FILE *f = md ? fopen(md, "w") : stdout;
         if (!f) { perror(md); return 1; }
         int rc = cmd_bench(f, csvp, hold);
+        if (f != stdout) { fclose(f); printf("report written to %s\n", md); }
+        return rc;
+    }
+    else if (!strcmp(c, "stuck")) {                            /* stuck [N] [file.md] */
+        int n = 5; const char *md = NULL;
+        for (int i = 2; i < argc; i++) { if (atoi(argv[i]) > 0) n = atoi(argv[i]); else md = argv[i]; }
+        if (n > 50) n = 50;
+        FILE *f = md ? fopen(md, "w") : stdout;
+        if (!f) { perror(md); return 1; }
+        int rc = cmd_stuck(f, n);
         if (f != stdout) { fclose(f); printf("report written to %s\n", md); }
         return rc;
     }

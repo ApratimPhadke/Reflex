@@ -1,0 +1,21 @@
+# 20 runs, same setup as fake-node-truth-per-run.txt
+run 1: estimate 19.6 mm, ground truth 23.9 mm
+run 2: estimate 9.1 mm, ground truth 14.4 mm
+run 3: estimate 8.4 mm, ground truth 14.7 mm
+run 4: estimate 7.7 mm, ground truth 13.2 mm
+run 5: estimate 6.4 mm, ground truth 13.1 mm
+run 6: estimate 8.3 mm, ground truth 14.5 mm
+run 7: estimate 20.6 mm, ground truth 26.3 mm
+run 8: estimate 8.0 mm, ground truth 12.6 mm
+run 9: estimate 11.1 mm, ground truth 17.6 mm
+run 10: estimate 8.4 mm, ground truth 14.5 mm
+run 11: estimate 17.1 mm, ground truth 23.3 mm
+run 12: estimate 12.7 mm, ground truth 17.8 mm
+run 13: estimate 7.2 mm, ground truth 12.7 mm
+run 14: estimate 16.0 mm, ground truth 22.3 mm
+run 15: estimate 13.5 mm, ground truth 18.4 mm
+run 16: estimate 9.0 mm, ground truth 15.9 mm
+run 17: estimate 11.3 mm, ground truth 16.7 mm
+run 18: estimate 21.8 mm, ground truth 27.5 mm
+run 19: estimate 11.1 mm, ground truth 15.7 mm
+run 20: estimate 13.6 mm, ground truth 18.8 mm

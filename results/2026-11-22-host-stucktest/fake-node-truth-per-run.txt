@@ -1,0 +1,7 @@
+# stuck fault, guardian ON, fake I/O node (hidden calibration as make test-serial), hardware-trained pilot as of item 1
+# per run: rxctl stuck 1 (guardian's estimate) and the fake node's ground-truth min edge (window reset with SIGHUP before each run)
+run 1: estimate 8.2 mm, ground truth 14.7 mm
+run 2: estimate 8.0 mm, ground truth 14.0 mm
+run 3: estimate 8.9 mm, ground truth 15.9 mm
+run 4: estimate 13.3 mm, ground truth 17.7 mm
+run 5: estimate 9.7 mm, ground truth 15.9 mm
