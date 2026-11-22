@@ -4,6 +4,7 @@
  * Exit code 0 only if every guarded run keeps the ball on the beam.
  * SPDX-License-Identifier: MIT */
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,28 +100,36 @@ static int envelope_mc(float hz, double k_scale, double slew_scale, long samples
 
 /* The same Monte Carlo check for the robot joint: random states the kernel calls recoverable, one more tick
  * of full torque in the worst direction, then the fallback only, on a joint whose inertia, gravity load and
- * torque slew differ from the model. Must never enter the keep-out strip before either stop. */
-static int envelope_mc_joint(float hz, double i_scale, double g_scale, double slew_scale, long samples, long *tested)
+ * torque slew differ from the model. Must never enter the keep-out strip before either stop.
+ * Each case has its own random stream so the cases can run in parallel (they are independent). */
+typedef struct { float hz; double i_scale, g_scale, slew_scale; long samples; uint64_t seed; long tested; int viol; } jmc_t;
+
+static void *envelope_mc_joint(void *arg)
 {
-    rx_cfg_t c; rx_cfg_joint(&c, hz);
-    rx_cfg_t world = c; world.inertia *= (float)i_scale; world.mgl *= (float)g_scale; world.slew *= (float)slew_scale;
+    jmc_t *J = arg;
+    uint64_t r = J->seed;
+#define JRAND() (r ^= r << 13, r ^= r >> 7, r ^= r << 17, (double)(r >> 11) / 9007199254740992.0)
+    rx_cfg_t c; rx_cfg_joint(&c, J->hz);
+    rx_cfg_t world = c; world.inertia *= (float)J->i_scale; world.mgl *= (float)J->g_scale; world.slew *= (float)J->slew_scale;
     long viol = 0, n = 0;
-    for (long i = 0; i < samples; i++) {
-        rx_plant_t p = { (urand() * 2 - 1) * c.half_len, (urand() * 2 - 1) * 4.0, (urand() * 2 - 1) * c.theta_max };
+    for (long i = 0; i < J->samples; i++) {
+        double x0 = (JRAND() * 2 - 1) * c.half_len, v0 = (JRAND() * 2 - 1) * 4.0, t0 = (JRAND() * 2 - 1) * c.theta_max;
+        rx_plant_t p = { x0, v0, t0 };
         if (rx_margin(&c, (float)p.x, (float)p.v) <= 0) continue;
         n++;
         float s = p.v > 0 ? 1.0f : (p.v < 0 ? -1.0f : (p.x >= 0 ? 1.0f : -1.0f));
-        float sp = (float)((urand() * 2 - 1) * c.sp_limit);
+        float sp = (float)((JRAND() * 2 - 1) * c.sp_limit);
         rx_plant_step(&p, &world, s * c.theta_max, c.dt);                    /* the adversary's last tick */
         int bad = 0;
-        for (int k = 0; k < (int)(3 * hz) && !bad; k++) {
+        for (int k = 0; k < (int)(3 * J->hz) && !bad; k++) {
             rx_plant_step(&p, &world, rx_safe_u(&c, (float)p.x, (float)p.v, sp), c.dt);
             if (fabs(p.x) > c.half_len - c.edge_margin) bad = 1;
         }
         viol += bad;
     }
-    *tested = n;
-    return (int)viol;
+#undef JRAND
+    J->tested = n; J->viol = (int)viol;
+    return NULL;
 }
 
 /* A learning pilot that starts from an untrained network must (a) never lose the ball and
@@ -248,10 +257,17 @@ int main(void)
         { 1.00, 1.00, 1.00, "nominal joint", 1 }, { 0.85, 1.00, 1.00, "inertia 15% lower than modelled", 1 },
         { 1.15, 1.00, 1.00, "inertia 15% higher", 1 }, { 1.00, 1.15, 1.00, "gravity load 15% higher", 1 },
         { 1.00, 1.00, 0.80, "torque rise 20% slower", 1 }, { 0.85, 1.15, 0.80, "all three at once", 0 } };
-    for (unsigned i = 0; i < sizeof jm / sizeof jm[0]; i++) {
-        long n; int v = envelope_mc_joint(1000.0f, jm[i].i, jm[i].g, jm[i].slew, 200000, &n);
-        printf("  %-34s %ld recoverable states tested, %d violations%s\n", jm[i].what, n, v, jm[i].must_pass ? "" : "  (informational)");
-        if (v && jm[i].must_pass) fail = 1;
+    enum { NJ = sizeof jm / sizeof jm[0] };
+    jmc_t J[NJ]; pthread_t th[NJ]; int started[NJ];
+    for (unsigned i = 0; i < NJ; i++) {               /* 250 Hz like the beam: a 4 ms adversary tick is harsher than 1 ms */
+        J[i] = (jmc_t){ 250.0f, jm[i].i, jm[i].g, jm[i].slew, 200000, 0x9E3779B97F4A7C15ull ^ (0xD1B54A32D192ED03ull * (i + 1)), 0, 0 };
+        started[i] = pthread_create(&th[i], NULL, envelope_mc_joint, &J[i]) == 0;
+        if (!started[i]) envelope_mc_joint(&J[i]);  /* no threads: run it here */
+    }
+    for (unsigned i = 0; i < NJ; i++) {
+        if (started[i]) pthread_join(th[i], NULL);
+        printf("  %-34s %ld recoverable states tested, %d violations%s\n", jm[i].what, J[i].tested, J[i].viol, jm[i].must_pass ? "" : "  (informational)");
+        if (J[i].viol && jm[i].must_pass) fail = 1;
     }
 
     printf("\n%s\n", fail ? "SIMTEST FAILED" : "SIMTEST PASSED");

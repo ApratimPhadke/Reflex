@@ -1,0 +1,40 @@
+  111.07s ago  tick 205127    guardian took over (envelope)
+  110.50s ago  tick 205701    AI back in control
+  110.41s ago  tick 205792    guardian took over (envelope)
+  109.83s ago  tick 206364    AI back in control
+  109.74s ago  tick 206456    pilot killed: 3 unsafe commands [2633777]
+  109.74s ago  tick 206456    guardian took over (envelope)
+  109.74s ago  tick 206460    pilot died [2633777]
+  109.53s ago  tick 206664    pilot spawned [2637873]
+  109.03s ago  tick 207167    AI back in control
+  108.94s ago  tick 207255    guardian took over (envelope)
+  108.37s ago  tick 207826    AI back in control
+  108.28s ago  tick 207917    guardian took over (envelope)
+  107.71s ago  tick 208487    AI back in control
+  107.50s ago  tick 208695    pilot killed: 3 unsafe commands [2637873]
+  107.50s ago  tick 208695    guardian took over (envelope)
+  107.50s ago  tick 208700    pilot died [2637873]
+  107.30s ago  tick 208902    pilot spawned [2641969]
+  106.79s ago  tick 209405    AI back in control
+   94.87s ago  tick 221332    BALL LOST
+   93.50s ago  tick 222698    BALL LOST
+   92.13s ago  tick 224064    BALL LOST
+   90.58s ago  tick 225615    AI back in control
+   78.95s ago  tick 237252    guardian took over (envelope)
+   78.34s ago  tick 237861    AI back in control
+   78.06s ago  tick 238135    guardian took over (envelope)
+   77.46s ago  tick 238738    AI back in control
+   77.18s ago  tick 239021    pilot killed: 3 unsafe commands [2641969]
+   77.18s ago  tick 239021    guardian took over (envelope)
+   77.17s ago  tick 239030    pilot died [2641969]
+   76.97s ago  tick 239232    pilot spawned [2646065]
+   76.46s ago  tick 239735    AI back in control
+   76.21s ago  tick 239989    guardian took over (envelope)
+   75.62s ago  tick 240580    AI back in control
+   75.39s ago  tick 240805    guardian took over (envelope)
+   74.79s ago  tick 241411    AI back in control
+   62.67s ago  tick 253529    BALL LOST
+   61.17s ago  tick 255029    BALL LOST
+   59.75s ago  tick 256444    BALL LOST
+   58.20s ago  tick 257995    AI back in control
+   28.07s ago  tick 288132    guardian took over (no-pilot)

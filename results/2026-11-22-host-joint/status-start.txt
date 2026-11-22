@@ -1,0 +1,4 @@
+reflex            v4  backend=sim  plant=joint  rate=1000Hz
+mode              AI (none)
+joint             angle=-34.4deg w=-2.0deg/s setpoint=-34deg  margin=22.9deg
+command           pilot=-0.811Nm  actuator=-0.811Nm

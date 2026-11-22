@@ -57,7 +57,8 @@ static size_t build_state(void)
 {
     char *p = out; int cap = sizeof out, n = 0;
 #define ADD(...) do { n += snprintf(p + n, n < cap ? cap - n : 0, __VA_ARGS__); } while (0)
-    ADD("{\"hz\":%.0f,\"half_len\":%.3f,\"theta_max\":%.3f,\"backend\":\"%s\",", shm->hz, shm->half_len, shm->theta_max, shm->backend);
+    ADD("{\"hz\":%.0f,\"half_len\":%.3f,\"theta_max\":%.3f,\"backend\":\"%s\",\"plant\":\"%s\",", shm->hz, shm->half_len,
+        shm->theta_max, shm->backend, strcmp(shm->plant, "joint") ? "beam" : "joint");
     {   /* serial backend: calibration, link and node identity; demo caption (all strings sanitised for JSON) */
         char cal[sizeof shm->calibrated_at], brd[sizeof shm->node_board], capt[sizeof shm->caption];
         jstr(cal, sizeof cal, shm->calibrated_at); jstr(brd, sizeof brd, shm->node_board);

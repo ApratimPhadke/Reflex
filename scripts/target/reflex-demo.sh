@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Reflex: the whole demo on the target with one command (copied to ~/reflex by make deploy).
 #
-#   ./reflex-demo.sh start [--sim | --serial] [guardian options, e.g. --learn-from-sim | --learn | --no-pilot]
+#   ./reflex-demo.sh start [--sim | --serial] [guardian options, e.g. --learn-from-sim | --learn | --no-pilot | --plant joint]
 #   ./reflex-demo.sh stop
 #   ./reflex-demo.sh status
 #
@@ -39,6 +39,7 @@ do_start() {
     mkdir -p "$LOGS"
     backend=auto
     case "${1:-}" in --sim) backend=sim; shift ;; --serial) backend=serial; shift ;; esac
+    case " $* " in *" --plant joint "*) backend=sim ;; esac      # the robot joint is simulated only
     if [ "$backend" = auto ]; then
         if [ ! -c "$DEV" ]; then
             backend=sim; echo "reflex-demo: no I/O node at $DEV -> simulated plant"

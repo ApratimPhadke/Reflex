@@ -162,10 +162,11 @@ static void joint_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt)
     double u = isfinite(u_cmd) ? u_cmd : p->theta;   /* a drive fed garbage holds its torque */
     if (u > c->theta_max) u = c->theta_max;
     if (u < -c->theta_max) u = -c->theta_max;
+    const double inv_i = 1.0 / c->inertia, lim = c->slew * h;
     for (int i = 0; i < n; i++) {
-        double d = u - p->theta, lim = c->slew * h;  /* p->theta = applied torque, rising at the slew rate */
+        double d = u - p->theta;                     /* p->theta = applied torque, rising at the slew rate */
         p->theta += d > lim ? lim : (d < -lim ? -lim : d);
-        double a = (p->theta - c->mgl * sin(p->x) - c->damping * p->v) / c->inertia;
+        double a = (p->theta - c->mgl * sin(p->x) - c->damping * p->v) * inv_i;
         p->v += a * h;
         p->x += p->v * h;
     }

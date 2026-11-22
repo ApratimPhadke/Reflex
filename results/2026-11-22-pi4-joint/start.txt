@@ -1,0 +1,15 @@
+reflex-demo: no I/O node at /dev/serusb1 -> simulated plant
+reflex-demo: guardian started under HAM (restarted if it dies), plant: sim
+  ham              running (pid 2195503 2179120 )
+  reflex-guardian  running (pid 2207794 )
+  reflex-pilot     running (pid 2220081 )
+  rxfs             running (pid 2256948 )
+  rxdash           running (pid 2277422 )
+  devc-serusb      running (pid 1073195 )
+  I/O node         /dev/serusb1 absent
+  reflex            v4  backend=sim  plant=joint  rate=1000Hz
+  mode              AI (none)
+  joint             angle=-29.7deg w=-21.6deg/s setpoint=-34deg  margin=23.1deg
+  command           pilot=-0.506Nm  actuator=-0.506Nm
+  balls lost        0
+  dashboard        http://10.203.87.190:8080/   (or http://qnxpi.local:8080/)

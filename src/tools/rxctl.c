@@ -260,7 +260,10 @@ static void campaign(FILE *out)
             skipped++;
             continue;
         }
-        if (joint) fprintf(out, "| %u | %s | %s | %.1f deg | %s | %u | %s |\n", fi + 1, F->what, det, min_edge * 57.29578,
+        const char *what = !joint ? F->what : !strcmp(F->name, "huge") ? "pilot outputs 40 N m (limit is 4)"
+                         : !strcmp(F->name, "stuck") ? "pilot output stuck at full torque"
+                         : !strcmp(F->name, "flip") ? "pilot output sign-inverted (drives the joint into a stop)" : F->what;
+        if (joint) fprintf(out, "| %u | %s | %s | %.1f deg | %s | %u | %s |\n", fi + 1, what, det, min_edge * 57.29578,
                            lost_g ? "**LIMIT HIT**" : "kept", restarts, lost_b ? "**LIMIT HIT**" : "kept");
         else fprintf(out, "| %u | %s | %s | %.1f cm | %s | %u | %s |\n", fi + 1, F->what, det, min_edge * 100,
                 lost_g ? "**LOST**" : "kept", restarts, lost_b ? "**LOST**" : "kept");

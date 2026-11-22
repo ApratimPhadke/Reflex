@@ -1,0 +1,18 @@
+reflex            v4  backend=sim  plant=joint  rate=1000Hz
+mode              SAFE (hold)
+joint             angle=+0.1deg w=+4.8deg/s setpoint=+34deg  margin=56.6deg
+command           pilot=+3.982Nm  actuator=+2.825Nm
+ticks             313374
+wake latency      max=31.7us  deadline-misses=0
+guardian exec     max=47.3us
+interventions     18 total
+  no-pilot        2
+  stale           3
+  non-finite      1
+  range           1
+  envelope        11
+pilot             pid=2646065 present=1 restarts=13 kills=11 quarantined=0 fault=none
+balls lost        9
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000

@@ -117,4 +117,17 @@ The guardian writes one record per tick into a ring buffer in POSIX shared memor
 
 ## Porting to another plant
 
-Replace three things in `src/core/rx_core.c`: the model in `rx_plant_step()`, the recoverable-set bound in `rx_margin()`, and the fallback in `rx_safe_u()`. Add an I/O backend in `src/guardian/rx_io.c`. The IPC, supervision, escalation, telemetry and tools are plant-independent.
+A plant is one `rx_plant_ops_t` table in `src/core/rx_core.c` (see `rx_core.h`): its dynamics for the guardian's one-step lookahead (`accel`), a one-sided recoverable-set bound (`margin_side`), the fallback controller (`safe_u`), a simulator (`step`) and the command that holds it at rest (`u_eq`), plus an `rx_cfg_*()` that sets its limits. The guardian loop, IPC, supervision, escalation, telemetry, campaign, benchmark and dashboard are plant-independent. A real plant also needs an I/O backend in `src/guardian/rx_io.c`.
+
+Two plants are implemented:
+
+| | ball and beam (`--plant beam`, default) | robot joint (`--plant joint`, simulation only) |
+|---|---|---|
+| state, command | ball position [m], beam angle [rad] | joint angle [rad], motor torque [N m] |
+| dynamics | x'' = (3/5) g sin(theta) | x'' = (tau - mgl sin x - b x') / I |
+| limits | +-0.20 m, 10 mm keep-out | hard stops +-1.2 rad, 0.05 rad keep-out, +-4 N m |
+| worst-case push / brake in the bound | k sin(theta_max) / eta of that | (tau_max + mgl)/I with gravity helping / eta (tau_max - mgl)/I against it |
+| fallback | PD on position through asin | PD with gravity compensation, saturated; full torque away near a stop |
+| pilot | `policy_weights.h`, `_hw.h` | `policy_weights_joint.h` (`train_policy.py --plant joint`) |
+
+The joint stands in for an exoskeleton or surgical-robot joint: a link lifted against gravity by a torque-limited motor between hard stops. `rx_simtest` runs every pilot fault on it at 1 kHz and 250 Hz and the Monte Carlo envelope test with the inertia, gravity load and torque rise perturbed; `rxctl campaign` and `rxctl bench` run on it unchanged (`results/2026-11-22-host-joint/`, `results/2026-11-22-pi4-joint/`). Its parameters are chosen, not measured on a real joint.

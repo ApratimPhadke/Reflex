@@ -66,7 +66,16 @@ function cmd(c){fetch('/api/cmd?'+encodeURIComponent(c)).catch(()=>{})}
 function toggleGuard(){cmd('guard '+(S&&S.guard?'off':'on'))}
 function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute('height');if(c.width!==w*r){c.width=w*r;c.height=h*r}const g=c.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return[g,w,h]}
 const MC={AI:'#58a6ff',SAFE:'#3fb950',BYPASS:'#f85149'};
-function drawBeam(){const[g,w,h]=fit($('beam'));if(!S||!S.recs.length)return;const r=S.recs[S.recs.length-1],L=S.half_len;
+function drawJoint(){const[g,w,h]=fit($('beam'));const r=S.recs[S.recs.length-1],L=S.half_len,E=0.05;
+ const x=(r[9]!==null?r[9]:r[1]),cx=w/2,cy=h*0.78,R=Math.min(h*0.62,w*0.3),ang=a=>-Math.PI/2+a;
+ g.lineWidth=10;g.strokeStyle='#f8514955';for(const s of[-1,1]){g.beginPath();g.arc(cx,cy,R+14,ang(s*(L-E))-(s<0?0.06:0),ang(s*L)+(s>0?0.06:0),s<0);g.stroke()}
+ g.lineWidth=4;g.strokeStyle='#f85149';for(const s of[-1,1]){const a=ang(s*L);g.beginPath();g.moveTo(cx+(R+4)*Math.cos(a),cy+(R+4)*Math.sin(a));g.lineTo(cx+(R+24)*Math.cos(a),cy+(R+24)*Math.sin(a));g.stroke()}
+ g.lineWidth=2;g.strokeStyle='#d29922';const sa=ang(r[2]);g.beginPath();g.moveTo(cx+(R-10)*Math.cos(sa),cy+(R-10)*Math.sin(sa));g.lineTo(cx+(R+10)*Math.cos(sa),cy+(R+10)*Math.sin(sa));g.stroke();
+ const a=ang(x);g.lineWidth=12;g.lineCap='round';g.strokeStyle=r[8]?'#f85149':(MC[S.mode]||'#fff');g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+R*Math.cos(a),cy+R*Math.sin(a));g.stroke();g.lineCap='butt';
+ g.fillStyle='#2a313c';g.beginPath();g.arc(cx,cy,14,0,7);g.fill();
+ g.fillStyle='#8b949e';g.font='12px system-ui';g.fillText('robot joint (simulated)   angle '+(r[1]*57.3).toFixed(1)+' deg   setpoint '+(r[2]*57.3).toFixed(0)+' deg   torque '+r[4].toFixed(2)+' N m',12,h-8);
+ if(r[8]){g.fillStyle='#f85149';g.font='bold 20px system-ui';g.fillText('LIMIT HIT',w/2-50,30)}}
+function drawBeam(){if(S&&S.plant==='joint'&&S.recs.length)return drawJoint();const[g,w,h]=fit($('beam'));if(!S||!S.recs.length)return;const r=S.recs[S.recs.length-1],L=S.half_len;
  const x=(r[9]!==null?r[9]:r[1]),u=r[4],cx=w/2,cy=h*0.62,pxm=(w*0.42)/L,a=u*1.5;
  g.save();g.translate(cx,cy);g.fillStyle='#2a313c';g.beginPath();g.moveTo(-16,60);g.lineTo(16,60);g.lineTo(0,6);g.fill();
  g.rotate(a);g.fillStyle='#f8514933';const ko=0.01*pxm;g.fillRect(-L*pxm,-5,ko,10);g.fillRect(L*pxm-ko,-5,ko,10);
@@ -82,12 +91,12 @@ function series(id,lines,lo,hi,shade){const[g,w,h]=fit($(id));if(!S||S.recs.leng
  for(const[k,col,lw]of lines){g.strokeStyle=col;g.lineWidth=lw;g.beginPath();let pen=false;for(let i=0;i<n;i++){let v=R[i][k];if(v===null){pen=false;continue}v=Math.max(lo,Math.min(hi,v));if(pen)g.lineTo(X(i),Y(v));else g.moveTo(X(i),Y(v));pen=true}g.stroke()}}
 function drawHist(){const[g,w,h]=fit($('hist'));if(!S)return;const H=S.hist;let a=0,b=H.length-1;while(b>4&&!H[b])b--;b=Math.min(H.length-1,b+1);const m=Math.max(1,...H.map(v=>Math.log1p(v)));const bw=w/(b-a+1);
  g.font='10px system-ui';for(let i=a;i<=b;i++){const v=Math.log1p(H[i])/m*(h-18);g.fillStyle=(1<<i)>5e5/S.hz?'#f85149':'#58a6ff';g.fillRect((i-a)*bw+1,h-16-v,bw-2,v);g.fillStyle='#8b949e';const us=1<<(i+1);if((i-a)%2===0)g.fillText(us>=1000?(us/1000)+'ms':us+'us',(i-a)*bw+1,h-3)}}
-function chips(){const ser=S.backend==='serial';const be=$('cbackend');be.innerHTML='plant <b>'+(ser?(S.node_emulated?'emulated board':'real beam'):'simulator')+'</b>'+(ser&&S.node_board?' ('+S.node_board+')':'');
+function chips(){const ser=S.backend==='serial';const be=$('cbackend');be.innerHTML='plant <b>'+(ser?(S.node_emulated?'emulated board':'real beam'):(S.plant==='joint'?'simulated robot joint':'simulator'))+'</b>'+(ser&&S.node_board?' ('+S.node_board+')':'');
  const l=$('clink'),c=$('ccal');l.style.display=c.style.display=ser?'inline':'none';
  if(ser){l.innerHTML='I/O link <b>'+(S.node_link?'up':'DOWN')+'</b>';l.className='chip '+(S.node_link?'ok':'bad');c.innerHTML='calibrated <b>'+(S.calibrated_at||'?')+'</b>';c.className='chip'+(S.calibrated_at==='uncalibrated'?' bad':'')}
  const cp=$('caption');cp.style.display=S.caption?'block':'none';cp.textContent=S.caption||''}
 function kv(){if(!S)return;chips();const iv=Object.entries(S.interventions).filter(e=>e[1]).map(e=>e[0]+' '+e[1]).join(', ')||'none';
- const rows=[['Mode',S.mode+' ('+S.reason+')'],['Control rate',S.hz+' Hz, '+S.backend],['Wake latency max',(S.lat_max_us).toFixed(1)+' us'],['Late ticks',S.deadline_miss],['Guardian exec max',S.exec_max_us.toFixed(1)+' us'],['Ticks',S.ticks.toLocaleString()],['Interventions',iv],['Pilot',S.pilot_present?('pid '+S.pilot_pid):'absent'],['Pilot restarts / kills',S.pilot_restarts+' / '+S.pilot_kills],['Injected fault',S.fault],['Balls lost',S.balls_lost],['Guardian starts',S.guardian_starts]];
+ const rows=[['Mode',S.mode+' ('+S.reason+')'],['Control rate',S.hz+' Hz, '+S.backend],['Wake latency max',(S.lat_max_us).toFixed(1)+' us'],['Late ticks',S.deadline_miss],['Guardian exec max',S.exec_max_us.toFixed(1)+' us'],['Ticks',S.ticks.toLocaleString()],['Interventions',iv],['Pilot',S.pilot_present?('pid '+S.pilot_pid):'absent'],['Pilot restarts / kills',S.pilot_restarts+' / '+S.pilot_kills],['Injected fault',S.fault],[S.plant==='joint'?'Joint limit hits':'Balls lost',S.balls_lost],['Guardian starts',S.guardian_starts]];
  $('kv').innerHTML=rows.map(r=>'<span>'+r[0]+'</span><span>'+r[1]+'</span>').join('');
  const b=$('badge');b.textContent=S.mode==='AI'?'AI IN CONTROL':S.mode==='SAFE'?'GUARDIAN IN CONTROL':'GUARDIAN BYPASSED';b.style.color=MC[S.mode];b.style.borderColor=MC[S.mode];
  const gb=$('guard');gb.textContent=S.guard?'Guardian ON - click to bypass':'Guardian BYPASSED - click to re-enable';gb.className='wide danger'+(S.guard?'':' on');
