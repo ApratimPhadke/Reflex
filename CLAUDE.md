@@ -18,6 +18,7 @@ make && make test                      # Linux reference build + full offline te
 make test-serial                       # serial path end to end against tools/fake_io_node.py (~5 min, includes test-cal)
 make test-cal                          # rxcal wizard against a fake rig with a wrong hidden calibration (~35 s)
 make QNX=1 ARCH=aarch64                # QNX build for the Pi 4 (HAM=0 / TRACE=0 only if those libs are truly missing)
+make linux-pilot [LINUX_ARCH=x86_64]   # static Linux pilot (UDP) for the hypervisor guest (aarch64) or a laptop (x86_64)
 make doctor [PI=...]                   # host + target readiness check
 PI=qnxuser@<ip> make deploy            # build for QNX and copy to ~/reflex on the target (+ reflex-demo.sh, demo/)
 PI=qnxpi scripts/install-autostart.sh  # target boot hook: USB serial driver at boot (--demo / --remove / --status)
@@ -40,7 +41,7 @@ src/ipc/rx_ipc_qnx.c   QNX channel/pulse/Send-Receive-Reply backend  (QNX only)
 src/ipc/rx_ipc_posix.c Linux timerfd + SOCK_SEQPACKET backend (A/B baseline, host tests)
 src/guardian/main.c    the real-time guardian process
 src/guardian/rx_io.c   plant I/O: simulator and serial link to the I/O node
-src/pilot/main.c       untrusted pilot process (frozen or learning) with fault-injection hooks
+src/pilot/main.c       untrusted pilot process (frozen or learning) with fault-injection hooks; --udp for a guest/remote pilot
 src/tools/             rxctl (CLI, campaign, script, flight recorder), rxdash (web UI), rxcal (calibration wizard), rx_simtest/rx_linktest (tests)
 src/qnx/               rxfs (resource manager /dev/reflex), rxham (High Availability Manager registration)
 firmware/reflex_io/    I/O node sketch (Black Pill / Arduino)

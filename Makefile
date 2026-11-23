@@ -94,6 +94,32 @@ $(OUT)/rxfs: src/qnx/rxfs.c $(CORE) $(HDRS) | $(OUT)
 $(OUT)/rxham: src/qnx/rxham.c | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxham.c -Wl,-Bstatic -lham -Wl,-Bdynamic   # libham.so is not on the Pi 4 quick-start image
 
+# The pilot as a native, statically linked Linux program: for a Linux guest under QNX Hypervisor, or any
+# Linux machine on the network (pilot_transport = udp, docs/HYPERVISOR.md). Same sources, same fault hooks
+# and learner as the pilot the guardian spawns; it talks UDP (reflex-pilot --udp <guardian a.b.c.d:port>).
+#   make linux-pilot                          LINUX_ARCH=aarch64 (default): aarch64-linux-gnu-gcc
+#   make linux-pilot LINUX_ARCH=x86_64        host gcc (laptop tests, make test-udp)
+#   make linux-pilot LINUX_CC=<sdk>/aarch64-poky-linux-gcc   any other aarch64 Linux cross compiler
+LINUX_ARCH ?= aarch64
+ifeq ($(LINUX_ARCH),x86_64)
+  LINUX_CC ?= gcc
+else
+  LINUX_CC ?= aarch64-linux-gnu-gcc
+endif
+LP_OUT := build/linux-pilot-$(LINUX_ARCH)
+LP_SRC := src/pilot/main.c src/core/rx_core.c src/core/rx_learner.c src/core/rx_shm.c src/core/rx_link.c src/core/rx_conf.c \
+          src/core/rx_wire.c src/ipc/rx_ipc_posix.c $(UDP)
+
+linux-pilot: $(LP_OUT)/reflex-pilot
+
+$(LP_OUT)/reflex-pilot: $(LP_SRC) $(HDRS)
+	@command -v $(LINUX_CC) >/dev/null || { echo "linux-pilot: '$(LINUX_CC)' not found. Install an aarch64 Linux cross compiler"; \
+	  echo "  (Ubuntu: sudo apt install gcc-aarch64-linux-gnu) or point LINUX_CC at one, e.g. a Yocto SDK's."; exit 1; }
+	mkdir -p $(LP_OUT)
+	$(LINUX_CC) -O2 -g -std=gnu11 -Wall -Wextra $(if $(filter 1,$(WERROR)),-Werror) -D_GNU_SOURCE -Isrc/core -Isrc/ipc \
+	  -static -o $@ $(LP_SRC) -lm -lpthread -lrt
+	@echo "built: $@"
+
 # regenerate the embedded dashboard after editing web/dashboard.html
 src/tools/dash_html.h: web/dashboard.html tools/embed.py
 	python3 tools/embed.py web/dashboard.html $@
@@ -134,4 +160,4 @@ flash:
 deploy:
 	./scripts/deploy.sh
 
-.PHONY: all test test-serial test-cal clean policy setup doctor fw flash deploy
+.PHONY: all test test-serial test-cal clean policy setup doctor fw flash deploy linux-pilot
