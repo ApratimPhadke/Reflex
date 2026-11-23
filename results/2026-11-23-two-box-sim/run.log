@@ -1,0 +1,19 @@
+[guardian] mlockall (continuing): Operation not permitted
+[guardian] no guest_restart_cmd in two-box.conf: a guest that goes down is logged, not restarted
+[guardian] pid 2420781  qnx-msgpass  50 Hz  plant=sim  prio=50  pilot=udp 10.203.87.190:47800 <- 10.203.87.207:47801, stale after 5 ticks (100 ms) from pilot_max_age_ms
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+[18:49:35.590] laptop pilot loop started: build/linux-pilot-x86_64/reflex-pilot --udp 10.203.87.190:47800 --bind 0.0.0.0:47801 --hz 50 
+[18:49:36.798] AI in control over UDP
+[18:49:41.250] phase normal: recording 120 s on the Pi
+[18:51:47.458] phase kill: recording 40 s on the Pi
+[18:51:57.103] phase kill +10s: pkill -9 -x reflex-pilot
+[18:57:07.148] phase flip: recording 30 s on the Pi
+[18:57:17.012] phase flip +10s: pi ./rxctl inject flip >/dev/null
+[18:57:27.088] phase flip +20s: pi ./rxctl clear >/dev/null
+[18:58:00.490] operator: rxctl release (quarantine from the first flip run; limiter history cleared)
+[18:58:00.787] phase flip: recording 30 s on the Pi
+[18:58:10.084] phase flip +10s: pi ./rxctl inject flip >/dev/null
+[18:58:20.039] phase flip +20s: pi ./rxctl clear >/dev/null
+[18:58:37.200] laptop pilot loop started: build/linux-pilot-x86_64/reflex-pilot --udp 10.203.87.190:47800 --bind 0.0.0.0:47801 --hz 50 --learn --weights /home/abc/A.I.M/hackathonproject/v4/reflex/results/2026-11-23-two-box-sim/learn-weights.bin
+[18:58:38.104] phase learn: recording 300 s on the Pi
+[19:03:52.482] stopped

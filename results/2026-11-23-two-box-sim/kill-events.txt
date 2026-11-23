@@ -1,0 +1,26 @@
+  174.90s ago  tick 0         guardian started [1]
+  172.68s ago  tick 112       new pilot instance (arg = its id) [1432242526]
+  172.66s ago  tick 113       guest up (arg = ms it was down, 0 = first contact)
+  172.16s ago  tick 138       AI back in control
+  161.26s ago  tick 683       guardian took over (stale)
+  157.04s ago  tick 894       AI back in control
+  142.36s ago  tick 1628      guardian took over (envelope)
+  141.84s ago  tick 1654      AI back in control
+  110.30s ago  tick 3231      guardian took over (envelope)
+  109.78s ago  tick 3257      AI back in control
+  102.22s ago  tick 3635      guardian took over (envelope)
+  101.68s ago  tick 3662      AI back in control
+   82.14s ago  tick 4639      guardian took over (envelope)
+   81.62s ago  tick 4665      AI back in control
+   62.10s ago  tick 5641      guardian took over (envelope)
+   61.58s ago  tick 5667      AI back in control
+   54.10s ago  tick 6041      guardian took over (envelope)
+   53.58s ago  tick 6067      AI back in control
+   31.10s ago  tick 7191      guardian took over (stale)
+   30.18s ago  tick 7237      GUEST DOWN: no valid proposal (arg = ms since the last) [1020]
+   30.18s ago  tick 7237      guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [1]
+   29.18s ago  tick 7287      new pilot instance (arg = its id) [385964879]
+   29.16s ago  tick 7288      guest up (arg = ms it was down, 0 = first contact) [1019]
+   28.66s ago  tick 7313      AI back in control
+   21.96s ago  tick 7648      guardian took over (envelope)
+   21.44s ago  tick 7674      AI back in control

@@ -132,7 +132,9 @@ learn)
 wifi)
     secs=${2:-150}
     pi ./rxctl status > "$OUT/wifi-status-before.txt"
-    pi "nohup ./rxctl log two-box/wifi.csv $secs > /dev/null 2>&1 < /dev/null &"
+    # ssh in the background here: QNX's shell keeps the session open while the remote job runs; nohup keeps
+    # rxctl recording when the Wi-Fi (and with it this ssh session) goes away
+    "${SSH[@]}" -n "cd $RD && nohup ./rxctl log two-box/wifi.csv $secs > /dev/null 2>&1 < /dev/null" > /dev/null 2>&1 &
     note "phase wifi: recording $secs s on the Pi (detached). Turn the laptop Wi-Fi OFF now, wait ~10 s, turn it back ON."
     t0=$SECONDS; down=""; up=""
     while [ $((SECONDS - t0)) -lt $((secs - 5)) ]; do
@@ -146,6 +148,8 @@ wifi)
     for _ in $(seq 60); do "${SSH[@]}" true 2>/dev/null && break; sleep 1; done
     pi ./rxctl status > "$OUT/wifi-status-after.txt"; pi ./rxctl events > "$OUT/wifi-events.txt"
     scp -q "$PI:$RD/two-box/wifi.csv" "$OUT/wifi.csv"
+    journalctl -u NetworkManager --since "-$((secs + 30))s" --no-pager 2>/dev/null |
+        grep -E "rfkill|$MY_IF\): state change|dhcp4|Activation" > "$OUT/wifi-networkmanager.txt"
     analyse wifi
     ;;
 stop)

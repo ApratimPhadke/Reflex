@@ -1,0 +1,18 @@
+reflex            v4  backend=sim  plant=beam  rate=50Hz
+mode              SAFE (quarantine)
+ball              x=-80.1mm v=-0.022m/s setpoint=-80mm  margin=95.8mm
+command           pilot=+0.0735rad  actuator=+0.0188rad
+ticks             24235
+wake latency      max=45.1us  deadline-misses=0
+guardian exec     max=35.9us
+interventions     21 total
+  stale           4
+  envelope        17
+pilot             pid=0 present=1 restarts=0 kills=0 quarantined=1 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000
+guest             QUARANTINED  last valid proposal 0 ms ago  restarts=5
+pilot link        udp from 10.203.87.207:47801  instance=17015b4f (2 seen)
+  datagrams       in ok=21577 refused: wrong-peer=0 malformed=0 replayed=0   out ok=24235 failed=0

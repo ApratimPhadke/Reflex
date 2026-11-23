@@ -1,0 +1,18 @@
+  129.23s ago  tick 0         guardian started [1]
+  127.01s ago  tick 112       new pilot instance (arg = its id) [1432242526]
+  126.99s ago  tick 113       guest up (arg = ms it was down, 0 = first contact)
+  126.49s ago  tick 138       AI back in control
+  115.59s ago  tick 683       guardian took over (stale)
+  111.37s ago  tick 894       AI back in control
+   96.69s ago  tick 1628      guardian took over (envelope)
+   96.17s ago  tick 1654      AI back in control
+   64.63s ago  tick 3231      guardian took over (envelope)
+   64.11s ago  tick 3257      AI back in control
+   56.55s ago  tick 3635      guardian took over (envelope)
+   56.01s ago  tick 3662      AI back in control
+   36.47s ago  tick 4639      guardian took over (envelope)
+   35.95s ago  tick 4665      AI back in control
+   16.43s ago  tick 5641      guardian took over (envelope)
+   15.91s ago  tick 5667      AI back in control
+    8.43s ago  tick 6041      guardian took over (envelope)
+    7.91s ago  tick 6067      AI back in control

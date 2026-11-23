@@ -1,0 +1,18 @@
+reflex            v4  backend=sim  plant=beam  rate=50Hz
+mode              AI (none)
+ball              x=-34.7mm v=-0.020m/s setpoint=-80mm  margin=141.7mm
+command           pilot=-0.0064rad  actuator=-0.0064rad
+ticks             42308
+wake latency      max=46.7us  deadline-misses=0
+guardian exec     max=41.6us
+interventions     82 total
+  stale           7
+  envelope        75
+pilot             pid=0 present=1 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   0 refused
+learning          ON  episodes=75  smoothed cost=0.547
+guest             up  last valid proposal 0 ms ago  restarts=6
+pilot link        udp from 10.203.87.207:47801  instance=73c7290a (3 seen)
+  datagrams       in ok=39529 refused: wrong-peer=0 malformed=0 replayed=0   out ok=42308 failed=0

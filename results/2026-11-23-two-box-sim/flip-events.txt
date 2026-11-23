@@ -1,0 +1,40 @@
+  271.80s ago  tick 13343     guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [1]
+  269.90s ago  tick 13438     guest up (arg = ms it was down, 0 = first contact) [46899]
+  269.40s ago  tick 13463     AI back in control
+  257.30s ago  tick 14068     guardian took over (envelope)
+  256.78s ago  tick 14094     AI back in control
+  253.34s ago  tick 14266     guardian took over (envelope)
+  252.82s ago  tick 14292     AI back in control
+  225.20s ago  tick 15673     guardian took over (envelope)
+  224.68s ago  tick 15699     AI back in control
+  177.06s ago  tick 18080     guardian took over (envelope)
+  176.54s ago  tick 18106     AI back in control
+  123.24s ago  tick 20771     guardian took over (stale)
+  122.72s ago  tick 20797     AI back in control
+   73.88s ago  tick 23239     guardian took over (envelope)
+   73.12s ago  tick 23277     AI back in control
+   72.72s ago  tick 23297     guardian took over (envelope)
+   71.94s ago  tick 23336     AI back in control
+   71.50s ago  tick 23358     GUEST QUARANTINED: 5 restarts in 10 min (rxctl release) [5]
+   71.50s ago  tick 23358     guardian took over (envelope)
+   34.56s ago  tick 25205     quarantine released
+   34.04s ago  tick 25231     AI back in control
+   20.90s ago  tick 25888     guardian took over (envelope)
+   20.14s ago  tick 25926     AI back in control
+   19.68s ago  tick 25949     guardian took over (envelope)
+   18.82s ago  tick 25992     AI back in control
+   18.36s ago  tick 26015     guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [3]
+   18.36s ago  tick 26015     guardian took over (envelope)
+   17.52s ago  tick 26057     AI back in control
+   17.08s ago  tick 26079     guardian took over (envelope)
+   16.34s ago  tick 26116     AI back in control
+   16.00s ago  tick 26133     guardian took over (envelope)
+   15.26s ago  tick 26170     AI back in control
+   14.96s ago  tick 26185     guardian took over (envelope)
+   14.24s ago  tick 26221     AI back in control
+   13.90s ago  tick 26238     guardian took over (envelope)
+   13.12s ago  tick 26277     AI back in control
+   12.84s ago  tick 26291     guardian took over (envelope)
+   12.02s ago  tick 26332     AI back in control
+   11.56s ago  tick 26355     guardian took over (envelope)
+   10.80s ago  tick 26393     AI back in control

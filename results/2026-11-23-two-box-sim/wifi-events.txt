@@ -1,0 +1,40 @@
+  359.40s ago  tick 3635      guardian took over (envelope)
+  358.86s ago  tick 3662      AI back in control
+  339.32s ago  tick 4639      guardian took over (envelope)
+  338.80s ago  tick 4665      AI back in control
+  319.28s ago  tick 5641      guardian took over (envelope)
+  318.76s ago  tick 5667      AI back in control
+  311.28s ago  tick 6041      guardian took over (envelope)
+  310.76s ago  tick 6067      AI back in control
+  288.28s ago  tick 7191      guardian took over (stale)
+  287.36s ago  tick 7237      GUEST DOWN: no valid proposal (arg = ms since the last) [1020]
+  287.36s ago  tick 7237      guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [1]
+  286.36s ago  tick 7287      new pilot instance (arg = its id) [385964879]
+  286.34s ago  tick 7288      guest up (arg = ms it was down, 0 = first contact) [1019]
+  285.84s ago  tick 7313      AI back in control
+  279.14s ago  tick 7648      guardian took over (envelope)
+  278.62s ago  tick 7674      AI back in control
+  243.02s ago  tick 9454      guardian took over (envelope)
+  242.50s ago  tick 9480      AI back in control
+  222.98s ago  tick 10456     guardian took over (envelope)
+  222.46s ago  tick 10482     AI back in control
+  214.96s ago  tick 10857     guardian took over (envelope)
+  214.44s ago  tick 10883     AI back in control
+  211.16s ago  tick 11047     guardian took over (stale)
+  210.24s ago  tick 11093     GUEST DOWN: no valid proposal (arg = ms since the last) [1020]
+  210.24s ago  tick 11093     guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [1]
+  195.24s ago  tick 11843     guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [1]
+  180.24s ago  tick 12593     guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [1]
+  165.24s ago  tick 13343     guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands) [1]
+  163.34s ago  tick 13438     guest up (arg = ms it was down, 0 = first contact) [46899]
+  162.84s ago  tick 13463     AI back in control
+  150.74s ago  tick 14068     guardian took over (envelope)
+  150.22s ago  tick 14094     AI back in control
+  146.78s ago  tick 14266     guardian took over (envelope)
+  146.26s ago  tick 14292     AI back in control
+  118.64s ago  tick 15673     guardian took over (envelope)
+  118.12s ago  tick 15699     AI back in control
+   70.50s ago  tick 18080     guardian took over (envelope)
+   69.98s ago  tick 18106     AI back in control
+   16.68s ago  tick 20771     guardian took over (stale)
+   16.16s ago  tick 20797     AI back in control

@@ -1,0 +1,31 @@
+Nov 23 18:52:44 APRATIM NetworkManager[1285]: <info>  [1795440164.0505] dhcp4 (enxaa1746699de2): state changed new lease, address=10.217.20.239
+Nov 23 18:53:14 APRATIM NetworkManager[1285]: <info>  [1795440194.3085] manager: rfkill: Wi-Fi hardware radio set disabled
+Nov 23 18:53:14 APRATIM NetworkManager[1285]: <info>  [1795440194.3086] device (wlp0s20f3): state change: activated -> unavailable (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:53:14 APRATIM NetworkManager[1285]: <info>  [1795440194.3090] dhcp4 (wlp0s20f3): canceled DHCP transaction
+Nov 23 18:53:14 APRATIM NetworkManager[1285]: <info>  [1795440194.3090] dhcp4 (wlp0s20f3): activation: beginning transaction (timeout in 45 seconds)
+Nov 23 18:53:14 APRATIM NetworkManager[1285]: <info>  [1795440194.3091] dhcp4 (wlp0s20f3): state changed no lease
+Nov 23 18:53:14 APRATIM NetworkManager[1285]: <info>  [1795440194.3446] manager: rfkill: Wi-Fi now disabled by radio killswitch
+Nov 23 18:53:14 APRATIM NetworkManager[1285]: <info>  [1795440194.3460] device (p2p-dev-wlp0s20f3): state change: disconnected -> unavailable (reason 'supplicant-failed', sys-iface-state: 'managed')
+Nov 23 18:53:57 APRATIM NetworkManager[1285]: <info>  [1795440237.2489] manager: rfkill: Wi-Fi hardware radio set enabled
+Nov 23 18:53:57 APRATIM NetworkManager[1285]: <info>  [1795440237.5334] manager: rfkill: Wi-Fi now enabled by radio killswitch
+Nov 23 18:53:57 APRATIM NetworkManager[1285]: <info>  [1795440237.5616] device (p2p-dev-wlp0s20f3): state change: unavailable -> unmanaged (reason 'removed', sys-iface-state: 'removed')
+Nov 23 18:53:57 APRATIM NetworkManager[1285]: <info>  [1795440237.5631] device (p2p-dev-wlp0s20f3): state change: unmanaged -> unavailable (reason 'managed', sys-iface-state: 'external')
+Nov 23 18:53:57 APRATIM NetworkManager[1285]: <info>  [1795440237.5638] device (wlp0s20f3): state change: unavailable -> disconnected (reason 'supplicant-available', sys-iface-state: 'managed')
+Nov 23 18:53:57 APRATIM NetworkManager[1285]: <info>  [1795440237.5649] device (p2p-dev-wlp0s20f3): state change: unavailable -> disconnected (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2310] device (wlp0s20f3): Activation: starting connection 'Apratim' (e0592db9-9827-4397-b0a9-01e212950187)
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2311] device (wlp0s20f3): state change: disconnected -> prepare (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2317] device (wlp0s20f3): state change: prepare -> config (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2323] device (wlp0s20f3): Activation: (wifi) access point 'Apratim' has security, but secrets are required.
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2323] device (wlp0s20f3): state change: config -> need-auth (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2340] device (wlp0s20f3): state change: need-auth -> prepare (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2344] device (wlp0s20f3): state change: prepare -> config (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.2349] device (wlp0s20f3): Activation: (wifi) connection 'Apratim' has security, and secrets exist.  No new secrets needed.
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.3692] device (wlp0s20f3): Activation: (wifi) Stage 2 of 5 (Device Configure) successful. Connected to wireless network "Apratim"
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.3706] device (wlp0s20f3): state change: config -> ip-config (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.3715] dhcp4 (wlp0s20f3): activation: beginning transaction (timeout in 45 seconds)
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.3812] dhcp4 (wlp0s20f3): state changed new lease, address=10.203.87.207, acd pending
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.5319] dhcp4 (wlp0s20f3): state changed new lease, address=10.203.87.207
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.5698] device (wlp0s20f3): state change: ip-config -> ip-check (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.5722] device (wlp0s20f3): state change: ip-check -> secondaries (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.5724] device (wlp0s20f3): state change: secondaries -> activated (reason 'none', sys-iface-state: 'managed')
+Nov 23 18:54:01 APRATIM NetworkManager[1285]: <info>  [1795440241.5742] device (wlp0s20f3): Activation: successful, device activated.

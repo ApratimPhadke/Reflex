@@ -1,0 +1,5 @@
+[guardian] mlockall (continuing): Operation not permitted
+[guardian] no guest_restart_cmd in two-box.conf: a guest that goes down is logged, not restarted
+[guardian] pid 2420781  qnx-msgpass  50 Hz  plant=sim  prio=50  pilot=udp 10.203.87.190:47800 <- 10.203.87.207:47801, stale after 5 ticks (100 ms) from pilot_max_age_ms
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+[guardian] stopped

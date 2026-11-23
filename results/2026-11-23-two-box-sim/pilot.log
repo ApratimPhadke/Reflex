@@ -1,0 +1,5 @@
+[pilot] udp 0.0.0.0:47801 -> guardian 10.203.87.190:47800, 50 Hz, instance 555e495e
+Killed
+[loop] 18:51:57.135 pilot exited (137), restarting in 2 s
+[pilot] udp 0.0.0.0:47801 -> guardian 10.203.87.190:47800, 50 Hz, instance 17015b4f
+[pilot] udp 0.0.0.0:47801 -> guardian 10.203.87.190:47800, 50 Hz, instance 73c7290a, learning

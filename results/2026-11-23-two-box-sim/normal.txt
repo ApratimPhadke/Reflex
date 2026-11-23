@@ -1,0 +1,6 @@
+ticks recorded 6000 (120.0 s at 50 Hz), gaps in the record 0
+AI in control 93.9 % of ticks; fallback ticks by reason: {'stale': 23, 'hold': 338, 'envelope': 7}
+closest approach to a beam end (ground truth): 117.9 mm (keep-out strip 10 mm)
+balls lost: 0 (counter 0 -> 0); ticks with no ball reading: 0
+guest at end: up, guardian-side guest restarts counter 0 -> 0
+PASS: ball kept, never inside the keep-out strip
