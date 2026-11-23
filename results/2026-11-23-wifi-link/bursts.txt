@@ -1,0 +1,4 @@
+late(>20 ms) or lost: 171 episodes, longest 29 consecutive probes (580 ms) starting at t=250.7 s
+late(>50 ms) or lost: 59 episodes, longest 16 consecutive probes (320 ms) starting at t=157.8 s
+late(>100 ms) or lost: 30 episodes, longest 12 consecutive probes (240 ms) starting at t=157.9 s
+probes >50 ms or lost per 10 s window: 2 0 0 0 0 0 0 0 0 0 0 87 0 0 0 20 0 0 0 0 0 0 0 23 29 27 14 2 0 0

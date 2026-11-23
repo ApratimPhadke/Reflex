@@ -1,0 +1,2 @@
+laptop: build/linux/rx_udpping echo 47801
+pi (ssh qnxpi): cd ~/reflex && ./rx_udpping ping 10.203.87.207:47801 --hz 50 --secs 300 --bind 47800 --csv /tmp/wifi-rtt.csv

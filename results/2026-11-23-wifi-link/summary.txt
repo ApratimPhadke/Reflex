@@ -1,0 +1,5 @@
+rx_udpping build 2dfac91: 15000 probes of 52 B to 10.203.87.207:47801 at 50.0 Hz for 300 s, replies of 48 B, drain 2.0 s
+received 14994, lost 6 (0.040 %), lost bursts 1, longest burst 6 probes (120 ms), duplicates 0, junk 0, send errors 0
+rtt us: min 1976  p50 3324  p90 5307  p99 65445  p99.9 173918  max 244539
+replies later than one period (20.0 ms): 527 (3.515 %); later than 2.5 periods (50.0 ms): 198 (1.321 %)
+send schedule: worst send 1.55 ms after its slot
