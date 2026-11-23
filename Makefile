@@ -61,7 +61,7 @@ CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_l
 UDP  := src/ipc/rx_ipc_udp.c
 HDRS := $(wildcard src/core/*.h src/ipc/*.h src/guardian/*.h src/tools/*.h)
 
-BINS := $(OUT)/reflex-guardian $(OUT)/reflex-pilot $(OUT)/rxctl $(OUT)/rxdash $(OUT)/rxcal $(OUT)/rx_simtest $(OUT)/rx_linktest $(EXTRA)
+BINS := $(OUT)/reflex-guardian $(OUT)/reflex-pilot $(OUT)/rxctl $(OUT)/rxdash $(OUT)/rxcal $(OUT)/rx_simtest $(OUT)/rx_linktest $(OUT)/rx_udpping $(EXTRA)
 
 all: $(BINS)
 	@echo "built: $(BINS)"
@@ -86,6 +86,10 @@ $(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner
 
 $(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(LIBS)
+
+# UDP round-trip of the pilot link (results/<date>-wifi-link): rx_udpping echo on the pilot's machine, ping on the guardian's
+$(OUT)/rx_udpping: src/tools/rx_udpping.c | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/tools/rx_udpping.c $(NETLIBS)
 
 $(OUT)/rxcal: src/tools/rxcal.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rxcal.c $(CORE) $(LIBS)
