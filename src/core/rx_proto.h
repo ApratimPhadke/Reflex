@@ -168,6 +168,13 @@ typedef struct {
     } bench;
     char  plant[16];                        /* "beam" or "joint" (written once at start) */
     float edge_margin;                      /* keep-out strip before each end [plant units] (written once at start) */
+    /* pilot over UDP (pilot_transport = udp, src/ipc/rx_ipc_udp.c); all zero on the local transport.
+     * The udp_* counters are written by the guardian's UDP helper threads (atomics only, never the event log). */
+    char  pilot_transport[8];               /* "local" or "udp" (written once at start) */
+    char  pilot_peer[24];                   /* the only address proposals are accepted from (written once at start) */
+    _Atomic uint64_t udp_rx_ok, udp_rx_malformed, udp_rx_peer, udp_rx_replay, udp_tx_ok, udp_tx_err;
+    _Atomic uint32_t udp_boot_id;           /* sender instance of the last accepted proposal (display only) */
+    _Atomic uint32_t udp_boots;             /* sender instances seen (a restarted pilot or guest is a new one) */
 } rx_shm_t;
 
 #endif

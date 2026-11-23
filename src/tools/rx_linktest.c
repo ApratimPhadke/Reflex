@@ -1,5 +1,6 @@
-/* Offline tests and fuzzing of the I/O node line protocol (src/core/rx_link.c) and of the rig
- * calibration file (src/core/rx_conf.c). Exit code 0 only if every check passes.
+/* Offline tests and fuzzing of the I/O node line protocol (src/core/rx_link.c), of the rig
+ * calibration file (src/core/rx_conf.c) and of the pilot's UDP datagram filter (src/core/rx_wire.c).
+ * Exit code 0 only if every check passes.
  * SPDX-License-Identifier: MIT */
 #include <math.h>
 #include <stdio.h>
@@ -7,6 +8,7 @@
 #include <string.h>
 #include "rx_conf.h"
 #include "rx_link.h"
+#include "rx_wire.h"
 
 static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -195,12 +197,149 @@ static void conf_cases(void)
     CHECK(rx_conf_check(&d, err, sizeof err) == 0, "defaults do not pass the check: %s", err);
 }
 
+/* ---- reflex.conf: the optional pilot transport keys */
+static void transport_cases(void)
+{
+    rx_conf_t c, d; char err[200], buf[2048];
+    CHECK(rx_conf_parse(&c, GOOD, err, sizeof err) == 0 && !c.pilot_udp && !c.has_transport &&
+          !strcmp(c.pilot_bind, "0.0.0.0:47800") && fabsf(c.guest_timeout_s - 1.0f) < 1e-6f && fabsf(c.guest_boot_s - 15.0f) < 1e-6f,
+          "calibration-only file: transport defaults wrong (%s)", err);
+    rx_conf_format(&c, buf, sizeof buf);
+    CHECK(!strstr(buf, "pilot_transport"), "calibration-only file grew transport keys on format");
+    const char *only = "pilot_transport = udp\npilot_bind = 10.0.0.1:47800\npilot_peer = 10.0.0.2:47801\n"
+                       "guest_timeout_s = 0.5\nguest_boot_s = 40\nguest_restart_cmd = /guests/restart.sh --hard\nguest_ssh = root@10.0.0.2\n";
+    CHECK(rx_conf_parse(&c, only, err, sizeof err) != 0 && strstr(err, "missing key"), "transport-only file passed the strict parser");
+    CHECK(rx_conf_parse_any(&c, only, err, sizeof err) == 0, "transport-only file rejected: %s", err);
+    CHECK(c.pilot_udp && !strcmp(c.pilot_peer, "10.0.0.2:47801") && !strcmp(c.pilot_bind, "10.0.0.1:47800") &&
+          fabsf(c.guest_timeout_s - 0.5f) < 1e-6f && fabsf(c.guest_boot_s - 40) < 1e-6f &&
+          !strcmp(c.guest_restart_cmd, "/guests/restart.sh --hard") && !strcmp(c.guest_ssh, "root@10.0.0.2") &&
+          c.level_us == 1500 && !strcmp(c.calibrated_at, "uncalibrated"), "transport-only file: wrong values");
+    CHECK(rx_conf_format(&c, buf, sizeof buf) > 0 && rx_conf_parse(&d, buf, err, sizeof err) == 0 && d.pilot_udp &&
+          !strcmp(d.pilot_peer, c.pilot_peer) && !strcmp(d.guest_restart_cmd, c.guest_restart_cmd) && !strcmp(d.guest_ssh, c.guest_ssh),
+          "transport round trip: %s", err);
+    char both[2048]; snprintf(both, sizeof both, "%s%s", GOOD, only);
+    CHECK(rx_conf_parse(&c, both, err, sizeof err) == 0 && c.pilot_udp && c.level_us == 1530, "calibration + transport: %s", err);
+    CHECK(rx_conf_parse_any(&c, "level_us = 1500\npilot_transport = local\n", err, sizeof err) != 0 && strstr(err, "missing key"),
+          "partial calibration accepted by parse_any");
+    struct { const char *text, *why; } bad[] = {
+        { "pilot_transport = tcp\n", "local or udp" },
+        { "pilot_transport = udp\n", "needs pilot_peer" },
+        { "pilot_transport = udp\npilot_peer = 0.0.0.0:47801\n", "needs pilot_peer" },
+        { "pilot_transport = udp\npilot_peer = 10.0.0.2:0\n", "needs pilot_peer" },
+        { "pilot_transport = udp\npilot_peer = 10.0.0.2\n", "pilot_peer" },
+        { "pilot_transport = udp\npilot_peer = 10.0.0.256:1\n", "pilot_peer" },
+        { "pilot_transport = udp\npilot_peer = host.local:1\n", "pilot_peer" },
+        { "pilot_bind = 1.2.3.4:99999\n", "pilot_bind" },
+        { "pilot_bind =\n", "empty" },
+        { "guest_timeout_s = 0.01\n", "guest_timeout_s" }, { "guest_timeout_s = nan\n", "number" },
+        { "guest_boot_s = 0\n", "guest_boot_s" },
+        { "guest_ssh = -oProxyCommand=x\n", "must not start" }, { "guest_ssh = root@h;rm\n", "only user@host" },
+        { "guest_restart_cmd = a\tb\n", "printable" },
+        { "pilot_transport = udp\npilot_transport = udp\n", "twice" },
+    };
+    for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        int r = rx_conf_parse_any(&d, bad[i].text, err, sizeof err);
+        CHECK(r != 0 && strstr(err, bad[i].why), "'%s' -> r=%d '%s'", bad[i].text, r, err);
+    }
+    CHECK(rx_conf_parse_any(&d, "guest_restart_cmd = slay qvm # comment\n", err, sizeof err) == 0 &&
+          !strcmp(d.guest_restart_cmd, "slay qvm"), "'#' in the restart command must start a comment: '%s'", d.guest_restart_cmd);
+    CHECK(rx_conf_parse_any(&d, "guest_ssh = local\n", err, sizeof err) == 0, "guest_ssh = local rejected: %s", err);
+}
+
+/* ---- the pilot's UDP datagram filter */
+static size_t mkprop(unsigned char *b, uint32_t boot, uint32_t seq, uint32_t type)
+{
+    rx_wire_prop_t d; memset(&d, 0, sizeof d);
+    rx_wire_hdr(&d.h, RX_WIRE_PROPOSAL, boot, seq);
+    d.p.type = type; d.p.seq = seq; d.p.u = 0.01f;
+    memcpy(b, &d, sizeof d);
+    return sizeof d;
+}
+
+static void wire_cases(void)
+{
+    uint32_t ip; uint16_t port;
+    CHECK(rx_wire_addr_parse("10.0.0.2:47801", &ip, &port) == 0 && ip == 0x0a000002u && port == 47801, "addr parse");
+    CHECK(rx_wire_addr_parse("0.0.0.0:0", &ip, &port) == 0 && ip == 0 && port == 0, "addr parse zeros");
+    CHECK(rx_wire_addr_parse("255.255.255.255:65535", &ip, &port) == 0 && ip == 0xffffffffu && port == 65535, "addr parse max");
+    const char *badaddr[] = { "", "1.2.3:4", "1.2.3.4", "1.2.3.4:", "1.2.3.4:65536", "256.0.0.1:1", "1.2.3.4:5 ", " 1.2.3.4:5",
+                              "1.2.3.4.5:6", "a.b.c.d:1", "1..3.4:5", "1.2.3.4:-1", "01234.1.1.1:1", "1.2.3.4:123456" };
+    for (unsigned i = 0; i < sizeof badaddr / sizeof badaddr[0]; i++)
+        CHECK(rx_wire_addr_parse(badaddr[i], &ip, &port) != 0, "address '%s' accepted", badaddr[i]);
+
+    const uint32_t P = 0x0a000002u; const uint16_t PP = 47801;
+    rx_wire_filter_t f; rx_wire_filter_init(&f, P, PP);
+    unsigned char b[128]; int nb; size_t n;
+    n = mkprop(b, 7, 1, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_OK && nb == 1, "first datagram");
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_REPLAY, "duplicate accepted");
+    n = mkprop(b, 7, 3, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_OK && nb == 0, "gap in pkt_seq (a lost datagram) refused");
+    n = mkprop(b, 7, 2, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_REPLAY, "reordered (older) datagram accepted");
+    CHECK(rx_wire_accept(&f, P + 1, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_BAD_PEER, "other host accepted");
+    CHECK(rx_wire_accept(&f, P, PP + 1, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_BAD_PEER, "other port accepted");
+    n = mkprop(b, 9, 1, RX_MSG_PROPOSAL);                    /* the pilot restarted: new instance, its seq starts again */
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_OK && nb == 1 && f.boot_id == 9, "new sender instance");
+    n = mkprop(b, 7, 100, RX_MSG_PROPOSAL);                  /* a late datagram of the old instance */
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_RETIRED && f.boot_id == 9, "retired instance accepted");
+    n = mkprop(b, 9, 0x80000000u, RX_MSG_PROPOSAL);          /* serial-number arithmetic: up to 2^31 - 1 ahead is newer */
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_OK, "large forward jump");
+    n = mkprop(b, 9, 0x00000002u, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_REPLAY, "2^31 + 2 ahead is older, accepted");
+    n = mkprop(b, 9, 0xffffffffu, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_OK, "forward to 0xffffffff");
+    n = mkprop(b, 9, 0, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_OK, "pkt_seq wrap-around");
+    n = mkprop(b, 0, 5, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_MALFORMED, "boot id 0 accepted");
+    n = mkprop(b, 9, 50, 0x1234);
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_MALFORMED, "wrong message type accepted");
+    n = mkprop(b, 9, 51, RX_MSG_PROPOSAL);
+    CHECK(rx_wire_accept(&f, P, PP, b, n - 1, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_MALFORMED, "short datagram accepted");
+    CHECK(rx_wire_accept(&f, P, PP, b, n + 1, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_MALFORMED, "long datagram accepted");
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_STATE, &nb) == RX_WIRE_MALFORMED, "proposal accepted as a state");
+    b[0] ^= 1;
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_MALFORMED, "bad magic accepted");
+    b[0] ^= 1; b[4] = 2;
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_MALFORMED, "bad version accepted");
+    b[4] = 1;
+    CHECK(rx_wire_accept(&f, P, PP, b, n, RX_WIRE_PROPOSAL, &nb) == RX_WIRE_OK, "valid datagram after the bad ones");
+
+    /* fuzz: random bytes and random mutations of a valid datagram. Whatever is accepted is a well-formed new
+     * proposal from the peer; pkt_seq of the current instance only moves forward. */
+    long accepted = 0;
+    for (int it = 0; it < 300000; it++) {
+        unsigned char z[96]; size_t len;
+        uint32_t src = (rnd() & 7) ? P : rnd(); uint16_t sp = (rnd() & 7) ? PP : (uint16_t)rnd();
+        if (rnd() & 1) {
+            len = mkprop(z, 1 + (rnd() & 3), rnd() & 0xff, RX_MSG_PROPOSAL);
+            for (int k = rnd() % 4; k > 0; k--) z[rnd() % len] = (unsigned char)rnd();
+            if (!(rnd() % 8)) len = rnd() % sizeof z;
+        } else { len = rnd() % sizeof z; for (size_t k = 0; k < len; k++) z[k] = (unsigned char)rnd(); }
+        rx_wire_filter_t before = f;
+        int r = rx_wire_accept(&f, src, sp, z, len, RX_WIRE_PROPOSAL, &nb);
+        if (r == RX_WIRE_OK) {
+            accepted++;
+            rx_wire_hdr_t h; memcpy(&h, z, sizeof h);
+            rx_proposal_t pp; memcpy(&pp, z + sizeof h, sizeof pp);
+            CHECK(src == P && sp == PP && len == sizeof(rx_wire_prop_t) && h.magic == RX_WIRE_MAGIC && h.boot_id != 0 &&
+                  pp.type == RX_MSG_PROPOSAL, "fuzz: accepted a datagram it should not have");
+            if (!nb) CHECK((int32_t)(h.pkt_seq - before.last_seq) > 0, "fuzz: pkt_seq went backwards");
+            if (fails > 20) return;
+        } else CHECK(memcmp(&before, &f, sizeof f) == 0, "fuzz: a refused datagram changed the filter (verdict %d)", r);
+    }
+    CHECK(accepted > 1000, "fuzz: only %ld datagrams accepted, the mutations are too aggressive to mean anything", accepted);
+}
+
 int main(void)
 {
     printf("== I/O node link parser (protocol v%d) ==\n", RX_LINK_PROTO);
     line_cases(); split_invariance(); overflow(); burst(); fuzz(); commands();
     printf("== reflex.conf ==\n");
-    conf_cases();
+    conf_cases(); transport_cases();
+    printf("== pilot UDP datagram filter ==\n");
+    wire_cases();
     printf("%s\n", fails ? "LINKTEST FAILED" : "LINKTEST PASSED");
     return fails != 0;
 }

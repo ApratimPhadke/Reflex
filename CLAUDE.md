@@ -33,7 +33,9 @@ src/core/rx_core.c     safety kernel: recoverable-set bound, fallback controller
 src/core/rx_learner.c  online evolution-strategy learner for the pilot
 src/core/rx_shm.c      shared-memory telemetry, event log, text commands (used by rxctl/rxdash/rxfs)
 src/core/rx_link.c     I/O node line protocol v2: strict parser + command formatter (pure, fuzzed by rx_linktest)
-src/core/rx_conf.c     reflex.conf: parse/check/format, raw mm/us <-> m/rad (pure except load/save)
+src/core/rx_conf.c     reflex.conf: parse/check/format, raw mm/us <-> m/rad (pure except load/save); optional pilot transport keys
+src/core/rx_wire.c     pilot-over-UDP datagram format and filter (pure, fuzzed by rx_linktest)
+src/ipc/rx_ipc_udp.c   pilot over UDP: guardian helper threads + seqlock mailboxes, pilot client (pilot_transport = udp)
 src/ipc/rx_ipc_qnx.c   QNX channel/pulse/Send-Receive-Reply backend  (QNX only)
 src/ipc/rx_ipc_posix.c Linux timerfd + SOCK_SEQPACKET backend (A/B baseline, host tests)
 src/guardian/main.c    the real-time guardian process

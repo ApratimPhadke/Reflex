@@ -55,7 +55,8 @@ else
   EXTRA   :=
 endif
 
-CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c src/core/rx_conf.c
+CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c
+UDP  := src/ipc/rx_ipc_udp.c
 HDRS := $(wildcard src/core/*.h src/ipc/*.h src/guardian/*.h src/tools/*.h)
 
 BINS := $(OUT)/reflex-guardian $(OUT)/reflex-pilot $(OUT)/rxctl $(OUT)/rxdash $(OUT)/rxcal $(OUT)/rx_simtest $(OUT)/rx_linktest $(EXTRA)
@@ -66,11 +67,11 @@ all: $(BINS)
 $(OUT):
 	mkdir -p $(OUT)
 
-$(OUT)/reflex-guardian: src/guardian/main.c src/guardian/rx_io.c $(CORE) $(IPC) $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/guardian/main.c src/guardian/rx_io.c $(CORE) $(IPC) $(LIBS)
+$(OUT)/reflex-guardian: src/guardian/main.c src/guardian/rx_io.c $(CORE) $(IPC) $(UDP) $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/guardian/main.c src/guardian/rx_io.c $(CORE) $(IPC) $(UDP) $(LIBS) $(NETLIBS)
 
-$(OUT)/reflex-pilot: src/pilot/main.c $(CORE) $(IPC) $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/pilot/main.c $(CORE) $(IPC) $(LIBS)
+$(OUT)/reflex-pilot: src/pilot/main.c $(CORE) $(IPC) $(UDP) $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/pilot/main.c $(CORE) $(IPC) $(UDP) $(LIBS) $(NETLIBS)
 
 $(OUT)/rxctl: src/tools/rxctl.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rxctl.c $(CORE) $(LIBS)
@@ -81,8 +82,8 @@ $(OUT)/rxdash: src/tools/rxdash.c src/tools/dash_html.h $(CORE) $(HDRS) | $(OUT)
 $(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(LIBS)
 
-$(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c $(LIBS)
+$(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(LIBS)
 
 $(OUT)/rxcal: src/tools/rxcal.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rxcal.c $(CORE) $(LIBS)

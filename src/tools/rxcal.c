@@ -251,7 +251,7 @@ int main(int argc, char **argv)
     /* start from the existing calibration if there is one, else the firmware's old defaults */
     rx_conf_t c; char err[256];
     int had_conf = rx_conf_load(&c, conf_path, err, sizeof err) == 0;
-    if (!had_conf) rx_conf_default(&c);
+    if (!had_conf && rx_conf_load_any(&c, conf_path, err, sizeof err) != 0) rx_conf_default(&c);   /* keep pilot transport keys */
     printf("rxcal: device %s, writing %s%s\n", dev, conf_path, had_conf ? " (existing file used as the starting guess)" : "");
 
     /* ---------------------------------------------------------------- 1. link */

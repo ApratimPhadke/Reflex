@@ -28,6 +28,7 @@
 #include "rx_core.h"
 #include "rx_shm.h"
 #include "rx_ipc.h"
+#include "rx_ipc_udp.h"
 #include "rx_io.h"
 
 #if defined(__QNXNTO__) && !defined(RX_NO_TRACE)
@@ -59,7 +60,8 @@ static void usage(void)
          "  --backend sim|serial\n"
          "  --plant beam|joint simulated plant (default beam); joint = a robot joint with gravity load, sim only\n"
          "  --dev PATH         serial device of the I/O node (e.g. /dev/serusb1)\n"
-         "  --conf PATH        rig calibration written by rxcal (default: reflex.conf next to this binary)\n"
+         "  --conf PATH        rig calibration written by rxcal (default: reflex.conf next to this binary);\n"
+         "                     also says where the pilot runs: pilot_transport = local | udp (docs/HYPERVISOR.md)\n"
          "  --uncalibrated     serial backend without reflex.conf, on built-in defaults (debugging only)\n"
          "  --check-conf       only check reflex.conf: exit 0 if valid, 2 if not\n"
          "  --pilot-user U:G   run the pilot with this uid:gid (QNX). Default when we run as root:\n"
@@ -214,28 +216,6 @@ int main(int argc, char **argv)
     if (!joint && strcmp(o.plant, "beam")) { fprintf(stderr, "--plant must be beam or joint\n"); return 2; }
     if (joint && serial) { fprintf(stderr, "--plant joint is simulated only (the real rig is a ball and beam)\n"); return 2; }
     if (joint && o.learn) { fprintf(stderr, "--plant joint: the online learner is for the beam only; the joint flies its frozen pilot\n"); return 2; }
-    {   /* who the untrusted pilot runs as */
-        if (o.pilot_user) {
-            unsigned u, g;
-            if (sscanf(o.pilot_user, "%u:%u", &u, &g) != 2) { fprintf(stderr, "--pilot-user wants UID:GID\n"); return 2; }
-            o.pilot_cred = 1; o.pilot_uid = (uid_t)u; o.pilot_gid = (gid_t)g;
-        } else if (geteuid() == 0 && !o.no_pilot) {
-            struct stat st;
-            if (stat(o.pilot_path, &st) != 0 || st.st_uid == 0) {
-                fprintf(stderr, "[guardian] running as root, and %s is owned by root (or missing): refusing to run the\n"
-                                "[guardian] untrusted pilot as root. Give it an ordinary owner, or pass --pilot-user UID:GID.\n", o.pilot_path);
-                return 2;
-            }
-            o.pilot_cred = 1; o.pilot_uid = st.st_uid; o.pilot_gid = st.st_gid;
-        }
-#ifndef __QNXNTO__
-        if (o.pilot_cred && geteuid() == 0) {
-            fprintf(stderr, "[guardian] --pilot-user / root is only supported on QNX (posix_spawnattr_setcred)\n");
-            return 2;
-        }
-        o.pilot_cred = 0;
-#endif
-    }
     if (o.hz <= 0) o.hz = serial ? 50.0f : 1000.0f;
     if (o.hz < 10 || o.hz > 4000) { fprintf(stderr, "--hz must be 10..4000\n"); return 2; }
 
@@ -264,6 +244,35 @@ int main(int argc, char **argv)
         }
         /* a measured beam can only make the kernel's beam shorter, never longer */
         if (conf.half_len_m < cfg.half_len) cfg.half_len = conf.half_len_m;
+    } else if (o.conf || access(conf_path, R_OK) == 0) {   /* sim (or --uncalibrated): only the pilot transport keys matter */
+        char err[256];
+        if (rx_conf_load_any(&conf, conf_path, err, sizeof err) != 0) { fprintf(stderr, "[guardian] %s\n", err); return 2; }
+    }
+    /* where the pilot runs: spawned here and reached by message passing, or somewhere else over UDP
+     * (e.g. a Linux guest under QNX Hypervisor). Either way its proposals are judged identically. */
+    const int udp = conf.pilot_udp;
+    const int spawn_local = !o.no_pilot && !udp;
+    {   /* who the untrusted pilot runs as */
+        if (o.pilot_user) {
+            unsigned u, g;
+            if (sscanf(o.pilot_user, "%u:%u", &u, &g) != 2) { fprintf(stderr, "--pilot-user wants UID:GID\n"); return 2; }
+            o.pilot_cred = 1; o.pilot_uid = (uid_t)u; o.pilot_gid = (gid_t)g;
+        } else if (geteuid() == 0 && !o.no_pilot && !udp) {   /* a UDP pilot is not ours to spawn */
+            struct stat st;
+            if (stat(o.pilot_path, &st) != 0 || st.st_uid == 0) {
+                fprintf(stderr, "[guardian] running as root, and %s is owned by root (or missing): refusing to run the\n"
+                                "[guardian] untrusted pilot as root. Give it an ordinary owner, or pass --pilot-user UID:GID.\n", o.pilot_path);
+                return 2;
+            }
+            o.pilot_cred = 1; o.pilot_uid = st.st_uid; o.pilot_gid = st.st_gid;
+        }
+#ifndef __QNXNTO__
+        if (o.pilot_cred && geteuid() == 0) {
+            fprintf(stderr, "[guardian] --pilot-user / root is only supported on QNX (posix_spawnattr_setcred)\n");
+            return 2;
+        }
+        o.pilot_cred = 0;
+#endif
     }
 
     rx_shm_t *shm = rx_shm_open(1);
@@ -278,6 +287,8 @@ int main(int argc, char **argv)
     snprintf(shm->backend, sizeof shm->backend, "%s", o.backend);
     snprintf(shm->plant, sizeof shm->plant, "%s", rx_plant_ops(cfg.plant)->name);
     snprintf(shm->calibrated_at, sizeof shm->calibrated_at, "%s", serial ? (o.uncalibrated ? "uncalibrated" : conf.calibrated_at) : "-");
+    snprintf(shm->pilot_transport, sizeof shm->pilot_transport, "%s", udp ? "udp" : "local");
+    snprintf(shm->pilot_peer, sizeof shm->pilot_peer, "%s", udp ? conf.pilot_peer : "");
     atomic_store(&shm->node_link, 0); atomic_store(&shm->node_proto, 0);
     atomic_store(&shm->guardian_pid, getpid());
     atomic_fetch_add(&shm->guardian_starts, 1);
@@ -304,13 +315,22 @@ int main(int argc, char **argv)
     spw.o = &o; spw.srv = srv; spw.chid = rx_server_chid(srv); spw.hz = cfg.hz;
     spw.prio = o.prio - 10 > o.pilot_prio ? o.prio - 10 : o.pilot_prio + 1;
     pthread_t spw_thread;
-    if (!o.no_pilot && (rc = pthread_create(&spw_thread, NULL, spawner_main, &spw)) != 0) {
+    if (spawn_local && (rc = pthread_create(&spw_thread, NULL, spawner_main, &spw)) != 0) {
         fprintf(stderr, "[guardian] cannot start the pilot spawner: %s\n", strerror(rc));
         return 1;
     }
+    rx_udp_t *udpl = NULL;
+    if (udp) {
+        char err[256];
+        udpl = rx_udp_open(conf.pilot_bind, conf.pilot_peer, spw.prio, shm, err, sizeof err);
+        if (!udpl) { fprintf(stderr, "[guardian] pilot over UDP: %s\n", err); return 1; }
+    }
 
+    char pilot_desc[600];
+    if (udp) snprintf(pilot_desc, sizeof pilot_desc, "udp %s <- %s", conf.pilot_bind, conf.pilot_peer);
+    else snprintf(pilot_desc, sizeof pilot_desc, "%s", o.no_pilot ? "(none)" : o.pilot_path);
     fprintf(stderr, "[guardian] pid %d  %s  %.0f Hz  plant=%s  prio=%d  pilot=%s%s\n", getpid(), rx_ipc_backend(),
-            cfg.hz, io->name, o.prio, o.no_pilot ? "(none)" : o.pilot_path,
+            cfg.hz, io->name, o.prio, pilot_desc,
             o.learn == 1 ? "  LEARNING from scratch" : o.learn == 2 ? "  LEARNING from sim weights" : "");
     fprintf(stderr, "[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.\n");
 
@@ -330,11 +350,19 @@ int main(int argc, char **argv)
     const rx_plant_ops_t *P = rx_plant_ops(cfg.plant);
     const float sp_amp = cfg.plant == RX_PLANT_JOINT ? 0.6f : 0.08f;   /* automatic square wave: +-80 mm / +-0.6 rad */
     uint8_t prev_mode = 255;
+    uint64_t udp_refused_seen = atomic_load(&shm->udp_rx_peer);
     rx_event_push(shm, 0, RX_E_GUARDIAN_START, (int32_t)atomic_load(&shm->guardian_starts));
 
     while (!g_stop) {
         rx_event_e ev = rx_server_wait(srv, &prop);
         if (ev == RX_EV_ERROR) { perror("[guardian] wait"); break; }
+        if (ev == RX_EV_TICK && udpl && rx_udp_take(udpl, &prop, NULL)) {
+            /* a UDP proposal is picked up at the tick, from a mailbox the rx helper thread fills; it is then
+             * handled exactly like one that arrived by message passing between ticks */
+            atomic_store(&shm->pilot_present, 1);
+            if (prop.flags & RX_PF_HELLO) have_prop = 0;
+            else { last_prop = prop; have_prop = 1; last_prop_tick = seq; }
+        }
         if (ev == RX_EV_PROPOSAL) {
             atomic_store(&shm->pilot_present, 1);
             if (prop.flags & RX_PF_HELLO) have_prop = 0;
@@ -379,7 +407,8 @@ int main(int argc, char **argv)
 
         rx_state_t st = { seq, atomic_load(&shm->fault), atomic_load(&shm->fault_arg), est.x, est.v, sp_m,
                           g.mode, g.reason, (uint32_t)training };
-        rx_server_publish(srv, &st);                                 /* unblocks the pilot; never blocks us */
+        if (udpl) rx_udp_publish(udpl, &st);                         /* mailbox + semaphore; the tx thread sends it */
+        else rx_server_publish(srv, &st);                            /* unblocks the pilot; never blocks us */
 
         /* ------------------------------------------------ pilot supervision */
         int want_restart = out.want_restart && !training;            /* a learner is allowed to be wrong */
@@ -407,12 +436,19 @@ int main(int argc, char **argv)
                 }
             }
         }
+        if (udpl && seq % (uint32_t)cfg.hz == 0) {                  /* once a second: datagrams from anyone but the peer */
+            uint64_t refused = atomic_load(&shm->udp_rx_peer);
+            if (refused != udp_refused_seen) {
+                rx_event_push(shm, seq, RX_E_SPOOF, (int32_t)(refused - udp_refused_seen));   /* arg = how many this second */
+                udp_refused_seen = refused;
+            }
+        }
         if (offence_age > 0 && --offence_age == 0) offences = 0;
         if (atomic_exchange(&shm->cmd_release_quarantine, 0)) {
             if (atomic_exchange(&shm->quarantined, 0)) rx_event_push(shm, seq, RX_E_RELEASE, 0);
             offences = 0;
         }
-        if (pilot == 0 && !spawn_pending && !o.no_pilot && !atomic_load(&shm->quarantined) && seq >= respawn_at) {
+        if (pilot == 0 && !spawn_pending && spawn_local && !atomic_load(&shm->quarantined) && seq >= respawn_at) {
             atomic_store(&spw.req, 1);                               /* the helper thread spawns; we never wait */
             spawn_pending = 1;
         }
@@ -482,7 +518,7 @@ int main(int argc, char **argv)
         }
     }
 
-    if (!o.no_pilot) {
+    if (spawn_local) {
         atomic_store(&spw.stop, 1);
         pthread_join(spw_thread, NULL);
         pid_t np = atomic_exchange(&spw.result, 0);                  /* spawned while we were stopping */
@@ -490,6 +526,7 @@ int main(int argc, char **argv)
     }
     if (pilot > 0) { kill(pilot, SIGTERM); usleep(50000); kill(pilot, SIGKILL); waitpid(pilot, NULL, 0); }
     atomic_store(&shm->pilot_pid, 0); atomic_store(&shm->pilot_present, 0);
+    rx_udp_close(udpl);
     io->write(io, 0.0f);
     io->close(io);
     fprintf(stderr, "[guardian] stopped\n");
