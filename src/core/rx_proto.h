@@ -77,13 +77,21 @@ static const char *const rx_fault_name[]  = { "none", "nan", "flip", "stuck", "h
 typedef enum {
     RX_E_GUARDIAN_START = 1, RX_E_INTERVENE, RX_E_AI_RESUMED, RX_E_PILOT_SPAWN, RX_E_PILOT_DIED,
     RX_E_KILL_HUNG, RX_E_KILL_STRIKES, RX_E_QUARANTINE, RX_E_RELEASE, RX_E_BALL_LOST, RX_E_SPOOF,
-    RX_E_SENSOR_LOST, RX_E_LINK_DOWN, RX_E_LINK_UP, RX_E_NODE_INFO, RX_E_NODE_OLD, RX_E_COUNT
+    RX_E_SENSOR_LOST, RX_E_LINK_DOWN, RX_E_LINK_UP, RX_E_NODE_INFO, RX_E_NODE_OLD,
+    /* pilot over UDP (guest supervision, src/core/rx_guest.h) */
+    RX_E_GUEST_DOWN, RX_E_GUEST_UP, RX_E_GUEST_RESTART, RX_E_GUEST_QUARANTINE, RX_E_GUEST_CMD_FAILED, RX_E_GUEST_INSTANCE,
+    RX_E_COUNT
 } rx_evcode_e;
 static const char *const rx_event_name[] = { "?", "guardian started", "guardian took over", "AI back in control",
     "pilot spawned", "pilot died", "pilot killed: unresponsive", "pilot killed: 3 unsafe commands",
     "pilot quarantined", "quarantine released", "BALL LOST", "spoofed sender refused", "sensor lost",
     "I/O node link down", "I/O node link up", "I/O node identified (arg = protocol*10 + emulated)",
-    "I/O node firmware speaks protocol v1: reflash it (make fw && make flash)" };
+    "I/O node firmware speaks protocol v1: reflash it (make fw && make flash)",
+    "GUEST DOWN: no valid proposal (arg = ms since the last)", "guest up (arg = ms it was down, 0 = first contact)",
+    "guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands)",
+    "GUEST QUARANTINED: 5 restarts in 10 min (rxctl release)",
+    "guest restart command failed (arg = exit status, -1 = ran over 60 s, -2 = could not start)",
+    "new pilot instance (arg = its id)" };
 typedef struct { uint64_t t_ns; uint32_t seq; uint16_t code; int32_t arg; } rx_event_t;
 
 /* ---- telemetry record (one per control tick) ------------------------- */
@@ -175,6 +183,10 @@ typedef struct {
     _Atomic uint64_t udp_rx_ok, udp_rx_malformed, udp_rx_peer, udp_rx_replay, udp_tx_ok, udp_tx_err;
     _Atomic uint32_t udp_boot_id;           /* sender instance of the last accepted proposal (display only) */
     _Atomic uint32_t udp_boots;             /* sender instances seen (a restarted pilot or guest is a new one) */
+    _Atomic uint32_t guest_state;           /* rx_guest_state_e (src/core/rx_guest.h); 0 on the local transport */
+    _Atomic uint32_t guest_restarts;        /* restart commands issued */
+    _Atomic uint32_t guest_age_ms;          /* time since the last valid proposal (updated ~10x/s) */
+    _Atomic uint32_t guest_cmd_running;     /* the restart command is running */
 } rx_shm_t;
 
 #endif

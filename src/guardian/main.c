@@ -29,6 +29,7 @@
 #include "rx_shm.h"
 #include "rx_ipc.h"
 #include "rx_ipc_udp.h"
+#include "rx_guest.h"
 #include "rx_io.h"
 
 #if defined(__QNXNTO__) && !defined(RX_NO_TRACE)
@@ -170,6 +171,62 @@ static void *spawner_main(void *arg)
         if (atomic_exchange(&s->req, 0)) {
             pid_t p = spawn_pilot(s->o, s->srv, s->chid, s->hz);
             atomic_store(&s->result, p > 0 ? p : -1);
+        } else nanosleep(&nap, NULL);
+    }
+    return NULL;
+}
+
+/* Guest restarts (pilot_transport = udp). guest_restart_cmd may take seconds (it might talk to qvm or ssh),
+ * so, like spawning, it is run by a helper thread; the control loop only raises `req` and later reads
+ * `status`. The command must return once the guest is on its way (start qvm in the background). */
+typedef struct {
+    const char   *cmd;
+    int           prio, child_prio;
+    _Atomic int   req, stop, done;
+    _Atomic int   status;          /* exit status, -1 = ran over 60 s (killed), -2 = could not start */
+    rx_shm_t     *shm;
+} runner_t;
+
+static int run_restart_cmd(const runner_t *r)
+{
+    posix_spawnattr_t at;
+    posix_spawnattr_init(&at);
+    struct sched_param sp; memset(&sp, 0, sizeof sp);
+#ifdef __QNXNTO__
+    sp.sched_priority = r->child_prio;                       /* not our helper's priority */
+    posix_spawnattr_setschedpolicy(&at, SCHED_RR);
+#else
+    posix_spawnattr_setschedpolicy(&at, SCHED_OTHER);
+#endif
+    posix_spawnattr_setschedparam(&at, &sp);
+    posix_spawnattr_setflags(&at, POSIX_SPAWN_SETSCHEDULER | POSIX_SPAWN_SETSCHEDPARAM);
+    char *argv[] = { "/bin/sh", "-c", (char *)r->cmd, NULL };
+    pid_t pid;
+    int rc = posix_spawn(&pid, "/bin/sh", NULL, &at, argv, environ);
+    posix_spawnattr_destroy(&at);
+    if (rc != 0) return -2;
+    struct timespec nap = { 0, 50 * 1000000 };
+    for (int i = 0; i < 1200; i++) {                         /* 60 s */
+        int ws;
+        if (waitpid(pid, &ws, WNOHANG) == pid) return WIFEXITED(ws) ? WEXITSTATUS(ws) : 128 + (WIFSIGNALED(ws) ? WTERMSIG(ws) : 0);
+        nanosleep(&nap, NULL);
+    }
+    kill(pid, SIGKILL); waitpid(pid, NULL, 0);
+    return -1;
+}
+
+static void *runner_main(void *arg)
+{
+    runner_t *r = arg;
+    struct sched_param sp = { .sched_priority = r->prio };
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);  /* best effort */
+    struct timespec nap = { 0, 20 * 1000000 };
+    while (!atomic_load(&r->stop)) {
+        if (atomic_exchange(&r->req, 0)) {
+            atomic_store(&r->shm->guest_cmd_running, 1);
+            atomic_store(&r->status, run_restart_cmd(r));
+            atomic_store(&r->shm->guest_cmd_running, 0);
+            atomic_store(&r->done, 1);
         } else nanosleep(&nap, NULL);
     }
     return NULL;
@@ -320,10 +377,22 @@ int main(int argc, char **argv)
         return 1;
     }
     rx_udp_t *udpl = NULL;
+    static runner_t run;                                     /* static: lives as long as its thread */
+    pthread_t run_thread;
+    rx_guest_t gst;
     if (udp) {
         char err[256];
         udpl = rx_udp_open(conf.pilot_bind, conf.pilot_peer, spw.prio, shm, err, sizeof err);
         if (!udpl) { fprintf(stderr, "[guardian] pilot over UDP: %s\n", err); return 1; }
+        run.cmd = conf.guest_restart_cmd; run.prio = spw.prio; run.child_prio = o.pilot_prio; run.shm = shm;
+        if (conf.guest_restart_cmd[0] && (rc = pthread_create(&run_thread, NULL, runner_main, &run)) != 0) {
+            fprintf(stderr, "[guardian] cannot start the guest restart helper: %s\n", strerror(rc));
+            return 1;
+        }
+        rx_guest_init(&gst, conf.guest_timeout_s, conf.guest_boot_s, 0.0);
+        atomic_store(&shm->guest_state, gst.state); atomic_store(&shm->guest_cmd_running, 0);
+        if (!conf.guest_restart_cmd[0])
+            fprintf(stderr, "[guardian] no guest_restart_cmd in %s: a guest that goes down is logged, not restarted\n", conf_path);
     }
 
     char pilot_desc[600];
@@ -351,6 +420,9 @@ int main(int argc, char **argv)
     const float sp_amp = cfg.plant == RX_PLANT_JOINT ? 0.6f : 0.08f;   /* automatic square wave: +-80 mm / +-0.6 rad */
     uint8_t prev_mode = 255;
     uint64_t udp_refused_seen = atomic_load(&shm->udp_rx_peer);
+    uint32_t udp_boots_seen = atomic_load(&shm->udp_boots);
+    int guest_ok = 0;                                        /* a command-carrying proposal was taken this tick */
+    double guest_down_at = -1;
     rx_event_push(shm, 0, RX_E_GUARDIAN_START, (int32_t)atomic_load(&shm->guardian_starts));
 
     while (!g_stop) {
@@ -361,7 +433,7 @@ int main(int argc, char **argv)
              * handled exactly like one that arrived by message passing between ticks */
             atomic_store(&shm->pilot_present, 1);
             if (prop.flags & RX_PF_HELLO) have_prop = 0;
-            else { last_prop = prop; have_prop = 1; last_prop_tick = seq; }
+            else { last_prop = prop; have_prop = 1; last_prop_tick = seq; guest_ok = 1; }
         }
         if (ev == RX_EV_PROPOSAL) {
             atomic_store(&shm->pilot_present, 1);
@@ -436,6 +508,41 @@ int main(int argc, char **argv)
                 }
             }
         }
+        if (udpl) {                                                  /* guest supervision: is the pilot's machine alive */
+            double now_s = seq / (double)cfg.hz;
+            int why = 0;
+            unsigned ga = rx_guest_step(&gst, now_s, guest_ok, out.want_restart && !training, &why);
+            guest_ok = 0;
+            if (ga & RX_GA_DOWN) {
+                rx_event_push(shm, seq, RX_E_GUEST_DOWN, (int32_t)((now_s - gst.last_ok_s) * 1000));
+                atomic_store(&shm->pilot_present, 0); have_prop = 0;    /* already stale for a second; now also absent */
+                guest_down_at = now_s;
+            }
+            if (ga & RX_GA_UP) {
+                rx_event_push(shm, seq, RX_E_GUEST_UP, guest_down_at >= 0 ? (int32_t)((now_s - guest_down_at) * 1000) : 0);
+                guest_down_at = -1;
+            }
+            if (ga & RX_GA_RESTART) {
+                rx_event_push(shm, seq, RX_E_GUEST_RESTART, why);
+                atomic_fetch_add(&shm->guest_restarts, 1);
+                if (run.cmd && run.cmd[0]) atomic_store(&run.req, 1); /* the helper runs it; we never wait */
+            }
+            if (ga & RX_GA_QUARANTINE) {
+                atomic_store(&shm->quarantined, 1);
+                rx_event_push(shm, seq, RX_E_GUEST_QUARANTINE, (int32_t)gst.restarts);
+            }
+            atomic_store(&shm->guest_state, gst.state);
+            if (atomic_exchange(&run.done, 0)) {
+                int st = atomic_load(&run.status);
+                if (st != 0) rx_event_push(shm, seq, RX_E_GUEST_CMD_FAILED, st);
+            }
+            uint32_t boots = atomic_load(&shm->udp_boots);
+            if (boots != udp_boots_seen) {
+                udp_boots_seen = boots;
+                rx_event_push(shm, seq, RX_E_GUEST_INSTANCE, (int32_t)(atomic_load(&shm->udp_boot_id) & 0x7fffffff));
+            }
+            if (seq % sup_div == 0) atomic_store(&shm->guest_age_ms, (uint32_t)((now_s - gst.last_ok_s) * 1000));
+        }
         if (udpl && seq % (uint32_t)cfg.hz == 0) {                  /* once a second: datagrams from anyone but the peer */
             uint64_t refused = atomic_load(&shm->udp_rx_peer);
             if (refused != udp_refused_seen) {
@@ -447,6 +554,7 @@ int main(int argc, char **argv)
         if (atomic_exchange(&shm->cmd_release_quarantine, 0)) {
             if (atomic_exchange(&shm->quarantined, 0)) rx_event_push(shm, seq, RX_E_RELEASE, 0);
             offences = 0;
+            if (udpl) rx_guest_release(&gst, seq / (double)cfg.hz);
         }
         if (pilot == 0 && !spawn_pending && spawn_local && !atomic_load(&shm->quarantined) && seq >= respawn_at) {
             atomic_store(&spw.req, 1);                               /* the helper thread spawns; we never wait */
@@ -526,6 +634,10 @@ int main(int argc, char **argv)
     }
     if (pilot > 0) { kill(pilot, SIGTERM); usleep(50000); kill(pilot, SIGKILL); waitpid(pilot, NULL, 0); }
     atomic_store(&shm->pilot_pid, 0); atomic_store(&shm->pilot_present, 0);
+    if (udpl && run.cmd && run.cmd[0]) {                     /* a restart command still running is left to finish on its own */
+        atomic_store(&run.stop, 1);
+        if (!atomic_load(&shm->guest_cmd_running)) pthread_join(run_thread, NULL);
+    }
     rx_udp_close(udpl);
     io->write(io, 0.0f);
     io->close(io);

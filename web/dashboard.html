@@ -32,7 +32,7 @@ body.present main{grid-template-columns:1fr;max-width:none;padding:18px 28px}
 body.present #caption{font-size:38px;padding:20px 26px}body.present #banner{font-size:24px}
 body.present #bigstats{display:grid}body.present .chip{font-size:16px}
 </style></head><body>
-<header><h1>REFLEX<small>runtime assurance for physical AI on QNX</small></h1><span class="chip" id="cbackend">backend</span><span class="chip" id="clink" style="display:none"></span><span class="chip" id="ccal" style="display:none"></span><div id="badge">connecting</div></header>
+<header><h1>REFLEX<small>runtime assurance for physical AI on QNX</small></h1><span class="chip" id="cbackend">backend</span><span class="chip" id="clink" style="display:none"></span><span class="chip" id="ccal" style="display:none"></span><span class="chip" id="cguest" style="display:none"></span><div id="badge">connecting</div></header>
 <main>
 <div id="caption"></div>
 <div id="banner"></div>
@@ -105,6 +105,8 @@ function drawHist(){const[g,w,h]=fit($('hist'));if(!S)return;const H=S.hist;let 
 function chips(){const ser=S.backend==='serial';const be=$('cbackend');be.innerHTML='plant <b>'+(ser?(S.node_emulated?'emulated board':'real beam'):(S.plant==='joint'?'simulated robot joint':'simulator'))+'</b>'+(ser&&S.node_board?' ('+S.node_board+')':'');
  const l=$('clink'),c=$('ccal');l.style.display=c.style.display=ser?'inline':'none';
  if(ser){l.innerHTML='I/O link <b>'+(S.node_link?'up':'DOWN')+'</b>';l.className='chip '+(S.node_link?'ok':'bad');c.innerHTML='calibrated <b>'+(S.calibrated_at||'?')+'</b>';c.className='chip'+(S.calibrated_at==='uncalibrated'?' bad':'')}
+ const gc=$('cguest'),G=S.guest,udp=S.transport==='udp';gc.style.display=udp?'inline':'none';
+ if(udp){const up=G.state==='up';gc.innerHTML='AI guest OS <b>'+G.state+'</b>'+(G.restarts?' &middot; '+G.restarts+' restart'+(G.restarts>1?'s':''):'');gc.className='chip '+(up?'ok':'bad')}
  const cp=$('caption');cp.style.display=S.caption?'block':'none';cp.textContent=S.caption||''}
 function bigstats(){if(!S)return;const iv=Object.values(S.interventions).reduce((a,b)=>a+b,0);$('bs0').textContent=S.balls_lost;
  $('bl0').textContent=S.plant==='joint'?'joint limit hits':'balls lost';$('bs0').style.color=S.balls_lost?'var(--bad)':'var(--safe)';
@@ -113,11 +115,11 @@ function setPresent(on){document.body.classList.toggle('present',on);$('beam').s
 setPresent(/[?&]present/.test(location.search));
 document.addEventListener('keydown',e=>{if(e.key==='p'||e.key==='P')setPresent(!document.body.classList.contains('present'))});
 function kv(){if(!S)return;chips();bigstats();const iv=Object.entries(S.interventions).filter(e=>e[1]).map(e=>e[0]+' '+e[1]).join(', ')||'none';
- const rows=[['Mode',S.mode+' ('+S.reason+')'],['Control rate',S.hz+' Hz, '+S.backend],['Wake latency max',(S.lat_max_us).toFixed(1)+' us'],['Late ticks',S.deadline_miss],['Guardian exec max',S.exec_max_us.toFixed(1)+' us'],['Ticks',S.ticks.toLocaleString()],['Interventions',iv],['Pilot',S.pilot_present?('pid '+S.pilot_pid):'absent'],['Pilot restarts / kills',S.pilot_restarts+' / '+S.pilot_kills],['Injected fault',S.fault],[S.plant==='joint'?'Joint limit hits':'Balls lost',S.balls_lost],['Guardian starts',S.guardian_starts]];
+ const rows=[['Mode',S.mode+' ('+S.reason+')'],['Control rate',S.hz+' Hz, '+S.backend],['Wake latency max',(S.lat_max_us).toFixed(1)+' us'],['Late ticks',S.deadline_miss],['Guardian exec max',S.exec_max_us.toFixed(1)+' us'],['Ticks',S.ticks.toLocaleString()],['Interventions',iv],...(S.transport==='udp'?[['Pilot','guest VM, '+S.guest.state+' (last valid '+(S.guest.age_ms<10000?S.guest.age_ms+' ms':(S.guest.age_ms/1000).toFixed(0)+' s')+' ago)'],['Guest restarts / instances',S.guest.restarts+(S.guest.cmd_running?' (restarting)':'')+' / '+S.guest.instances],['Datagrams ok / refused',S.guest.rx_ok.toLocaleString()+' / '+S.guest.refused]]:[['Pilot',S.pilot_present?('pid '+S.pilot_pid):'absent'],['Pilot restarts / kills',S.pilot_restarts+' / '+S.pilot_kills]]),['Injected fault',S.fault],[S.plant==='joint'?'Joint limit hits':'Balls lost',S.balls_lost],['Guardian starts',S.guardian_starts]];
  $('kv').innerHTML=rows.map(r=>'<span>'+r[0]+'</span><span>'+r[1]+'</span>').join('');
  const b=$('badge');b.textContent=S.mode==='AI'?'AI IN CONTROL':S.mode==='SAFE'?'GUARDIAN IN CONTROL':'GUARDIAN BYPASSED';b.style.color=MC[S.mode];b.style.borderColor=MC[S.mode];
  const gb=$('guard');gb.textContent=S.guard?'Guardian ON - click to bypass':'Guardian BYPASSED - click to re-enable';gb.className='wide danger'+(S.guard?'':' on');
- const bn=$('banner');let t='';if(S.quarantined)t='Pilot quarantined after repeated unsafe behaviour. The safe controller is flying. Heal the pilot to release it.';else if(!S.guard)t='Guardian bypassed: pilot commands go straight to the actuator. This is what the system looks like without Reflex.';bn.style.display=t?'block':'none';bn.textContent=t}
+ const bn=$('banner');let t='';if(S.transport==='udp'&&S.guest.state==='QUARANTINED')t='The AI guest was restarted 5 times in 10 minutes and is quarantined. The safe controller on QNX is flying. Release it with rxctl release.';else if(S.transport==='udp'&&S.guest.state==='DOWN')t='The AI\'s whole operating system is down'+(S.guest.cmd_running?' and being restarted':'')+'. The guardian on QNX is flying the '+(S.plant==='joint'?'joint':'ball')+'.';else if(S.quarantined)t='Pilot quarantined after repeated unsafe behaviour. The safe controller is flying. Heal the pilot to release it.';else if(!S.guard)t='Guardian bypassed: pilot commands go straight to the actuator. This is what the system looks like without Reflex.';bn.style.display=t?'block':'none';bn.textContent=t}
 function drawLearn(){const card=$('learncard');if(!S||!S.learn.episodes){card.style.display='none';return}card.style.display='block';const[g,w,h]=fit($('learn'));const C=S.learn.cost,I=S.learn.iv,n=C.length;if(n<2)return;
  const cm=Math.max(0.5,...C),im=Math.max(1,...I),X=i=>i*(w-1)/(n-1);g.fillStyle='#3fb95066';for(let i=0;i<n;i++){const b=I[i]/im*h*0.9;g.fillRect(X(i)-1,h-b,Math.max(2,w/n-1),b)}
  g.strokeStyle='#58a6ff';g.lineWidth=1.4;g.beginPath();let a=C[0];for(let i=0;i<n;i++){a=0.8*a+0.2*C[i];const y=h-a/cm*h*0.95;i?g.lineTo(X(i),y):g.moveTo(X(i),y)}g.stroke();

@@ -10,6 +10,7 @@
 #include <string.h>
 #include "rx_core.h"
 #include "rx_learner.h"
+#include "rx_guest.h"
 
 static uint64_t rng = 0x9E3779B97F4A7C15ull;
 static double urand(void) { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return (rng >> 11) / 9007199254740992.0; }
@@ -167,6 +168,102 @@ static int learning_test(void)
     return lost != 0 || !(best < 0.6f * cost_first);
 }
 
+/* Guest supervision (pilot_transport = udp): the restart limiter of rx_guest.c in simulated time. */
+static int guest_test(void)
+{
+    int bad = 0, why = 0; unsigned a;
+#define GCHECK(c, ...) do { if (!(c)) { printf("  FAIL: " __VA_ARGS__); printf("\n"); bad = 1; } } while (0)
+    const double dt = 0.01;
+    rx_guest_t g;
+
+    /* healthy, then silent: down after the timeout, restarted at once, then not again for 15 s */
+    rx_guest_init(&g, 1.0f, 15.0f, 0.0);
+    a = rx_guest_step(&g, 0.5, 1, 0, &why);
+    GCHECK(a == RX_GA_UP && g.state == RX_GUEST_UP, "first valid proposal did not bring the guest up (acts %u)", a);
+    double t = 0.5, t_down = -1, t_restart = -1;
+    unsigned nrest = 0;
+    for (t = 0.5 + dt; t < 40.0; t += dt) {
+        a = rx_guest_step(&g, t, 0, 0, &why);
+        if ((a & RX_GA_DOWN) && t_down < 0) t_down = t;
+        if (a & RX_GA_RESTART) { if (t_restart < 0) { t_restart = t; GCHECK(why == RX_GR_TIMEOUT, "restart reason %d, want timeout", why); } nrest++; }
+    }
+    GCHECK(t_down > 1.5 - 1e-6 && t_down < 1.5 + 2 * dt, "down at %.2f s, want 1.5 s (1 s after the last proposal)", t_down);
+    GCHECK(fabs(t_restart - t_down) < 1e-9, "first restart at %.2f s, not at the down transition %.2f s", t_restart, t_down);
+    GCHECK(nrest == 3, "%u restarts in 40 s of silence, want 3 (at 1.5, 16.5, 31.5 s)", nrest);
+    printf("  silent guest: down at %.2f s, restarts in the first 40 s: %u (15 s apart)\n", t_down, nrest);
+
+    /* never comes back: 5 restarts, then quarantine, then nothing for an hour */
+    rx_guest_init(&g, 1.0f, 15.0f, 0.0);
+    rx_guest_step(&g, 0.1, 1, 0, &why);
+    nrest = 0; double t_q = -1, t_first = -1;
+    for (t = 0.1 + dt; t < 3600.0; t += dt) {
+        a = rx_guest_step(&g, t, 0, 0, &why);
+        if ((a & RX_GA_RESTART) && !nrest++) t_first = t;
+        if (a & RX_GA_QUARANTINE) { GCHECK(t_q < 0, "quarantined twice"); t_q = t; }
+    }
+    GCHECK(nrest == RX_GUEST_MAX_RESTARTS && g.state == RX_GUEST_QUARANTINE, "dead guest: %u restarts, state %u", nrest, g.state);
+    GCHECK(fabs(t_q - t_first - 5 * RX_GUEST_MIN_GAP_S) < 6 * dt,   /* each restart lands within a tick of its slot */ "quarantined %.2f s after the first restart, want at the 6th slot (75 s)", t_q - t_first);
+    printf("  dead guest: %u restarts, quarantined at %.1f s, no restart in the hour after\n", nrest, t_q);
+    rx_guest_release(&g, 3600.0);
+    a = rx_guest_step(&g, 3600.0 + dt, 0, 0, &why);
+    GCHECK((a & RX_GA_RESTART) && g.state == RX_GUEST_DOWN, "after release a down guest was not restarted at once (acts %u)", a);
+    a = rx_guest_step(&g, 3601.0, 1, 0, &why);
+    GCHECK((a & RX_GA_UP) && g.state == RX_GUEST_UP, "released guest did not come up");
+
+    /* a guest that boots slowly: guest_boot_s = 40 spaces the restarts 40 s apart */
+    rx_guest_init(&g, 1.0f, 40.0f, 0.0);
+    nrest = 0; double last = -1, mingap = 1e9;
+    for (t = dt; t < 300.0; t += dt) {
+        a = rx_guest_step(&g, t, 0, 0, &why);
+        if (a & RX_GA_RESTART) {
+            if (!nrest) GCHECK(why == RX_GR_NEVER_UP && t > 40.0 - 1e-6 && t < 40.0 + 2 * dt, "never-up guest restarted at %.2f s reason %d, want 40 s never-up", t, why);
+            if (last >= 0 && t - last < mingap) mingap = t - last;
+            last = t; nrest++;
+        }
+    }
+    GCHECK(mingap > 40.0 - 2 * dt, "slow-boot restarts %.2f s apart, want >= 40 s", mingap);
+
+    /* strikes while up: one restart, then the limiter holds the next ones off for 15 s */
+    rx_guest_init(&g, 1.0f, 15.0f, 0.0);
+    rx_guest_step(&g, 0.1, 1, 0, &why);
+    a = rx_guest_step(&g, 5.0, 1, 1, &why);
+    GCHECK((a & RX_GA_RESTART) && why == RX_GR_STRIKES, "strike-out did not restart the guest (acts %u, reason %d)", a, why);
+    a = rx_guest_step(&g, 10.0, 1, 1, &why);
+    GCHECK(!(a & RX_GA_RESTART), "second strike-out 5 s later restarted the guest again");
+    a = rx_guest_step(&g, 20.1, 1, 1, &why);
+    GCHECK(a & RX_GA_RESTART, "strike-out 15 s later was not allowed");
+
+    /* random weather: guest flaps, strikes, comes and goes for 6 simulated hours. At no point may two restarts
+     * be less than 15 s apart or more than 5 fall in any 10-minute window. */
+    uint64_t r = 0x5DEECE66Dull; double hist[4096]; int nh = 0, total = 0, quarantines = 0;
+    for (int run = 0; run < 20 && !bad; run++) {
+        rx_guest_init(&g, 0.2f + 2.0f * (float)urand(), 1.0f + 60.0f * (float)urand(), 0.0);
+        int alive = 1; double flip_at = 0; nh = 0;            /* hist: restarts since the last release */
+        for (t = dt; t < 6 * 3600.0 && !bad; t += dt) {
+            if (t >= flip_at) { alive = !alive; r = r * 6364136223846793005ull + 1; flip_at = t + 0.5 + (double)(r >> 40) / (double)(1ull << 24) * 120.0; }
+            int strike = alive && urand() < 0.0005;
+            a = rx_guest_step(&g, t, alive, strike, &why);
+            if (a & RX_GA_RESTART) {
+                GCHECK(!nh || t - hist[nh - 1] >= RX_GUEST_MIN_GAP_S - 1e-9, "run %d: restarts %.2f s apart", run, t - hist[nh - 1]);
+                GCHECK(nh < RX_GUEST_MAX_RESTARTS || t - hist[nh - RX_GUEST_MAX_RESTARTS] >= RX_GUEST_WINDOW_S - 1e-9,
+                       "run %d: 6 restarts within %.1f s", run, t - hist[nh - RX_GUEST_MAX_RESTARTS]);
+                if (nh < 4096) hist[nh++] = t;
+                total++;
+                alive = 0; flip_at = t + 1.0 + urand() * 30.0;    /* a restart takes the guest down for a while */
+            }
+            if (a & RX_GA_QUARANTINE) {
+                int k = 0; for (int i = 0; i < nh; i++) if (t - hist[i] < RX_GUEST_WINDOW_S) k++;
+                GCHECK(k == RX_GUEST_MAX_RESTARTS, "run %d: quarantined with %d restarts in the window, want exactly 5", run, k);
+                quarantines++;
+                rx_guest_release(&g, t); nh = 0;                     /* an operator lets it back in */
+            }
+        }
+    }
+    printf("  random flapping guests, 20 x 6 h: %d restarts, %d quarantines; never < 15 s apart, never > 5 in 10 min\n", total, quarantines);
+#undef GCHECK
+    return bad;
+}
+
 int main(void)
 {
     static const char *names[] = { "none", "nan", "flip", "stuck", "huge", "slow", "spin(hang)", "crash" };
@@ -269,6 +366,9 @@ int main(void)
         printf("  %-34s %ld recoverable states tested, %d violations%s\n", jm[i].what, J[i].tested, J[i].viol, jm[i].must_pass ? "" : "  (informational)");
         if (J[i].viol && jm[i].must_pass) fail = 1;
     }
+
+    printf("\n== guest supervision (pilot over UDP): restart limiter, simulated time ==\n");
+    if (guest_test()) fail = 1;
 
     printf("\n%s\n", fail ? "SIMTEST FAILED" : "SIMTEST PASSED");
     return fail;

@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include "rx_shm.h"
+#include "rx_guest.h"
 
 uint64_t rx_now_ns(void)
 {
@@ -210,8 +211,11 @@ int rx_status_text(const rx_shm_t *s, char *buf, int cap)
         atomic_load(&s->training) ? "ON" : "off", atomic_load(&s->learn_episodes), s->learn_avg);
     if (n < cap && !strcmp(s->pilot_transport, "udp"))
         n += snprintf(buf + n, cap - n,
+        "guest             %s  last valid proposal %u ms ago  restarts=%u%s\n"
         "pilot link        udp from %s  instance=%08x (%u seen)\n"
         "  datagrams       in ok=%llu refused: wrong-peer=%llu malformed=%llu replayed=%llu   out ok=%llu failed=%llu\n",
+        rx_guest_name[atomic_load(&s->guest_state) % 5], atomic_load(&s->guest_age_ms), atomic_load(&s->guest_restarts),
+        atomic_load(&s->guest_cmd_running) ? "  (restart command running)" : "",
         s->pilot_peer, atomic_load(&s->udp_boot_id), atomic_load(&s->udp_boots),
         (unsigned long long)atomic_load(&s->udp_rx_ok), (unsigned long long)atomic_load(&s->udp_rx_peer),
         (unsigned long long)atomic_load(&s->udp_rx_malformed), (unsigned long long)atomic_load(&s->udp_rx_replay),

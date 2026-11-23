@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include "rx_shm.h"
+#include "rx_guest.h"
 #include "dash_html.h"
 
 static rx_shm_t *shm;
@@ -84,6 +85,12 @@ static size_t build_state(void)
     ADD("\"pilot_pid\":%d,\"pilot_present\":%u,\"pilot_restarts\":%u,\"pilot_kills\":%u,\"balls_lost\":%u,\"guardian_starts\":%u,",
         atomic_load(&shm->pilot_pid), atomic_load(&shm->pilot_present), atomic_load(&shm->pilot_restarts),
         atomic_load(&shm->pilot_kills), atomic_load(&shm->balls_lost), atomic_load(&shm->guardian_starts));
+    ADD("\"transport\":\"%s\",\"guest\":{\"state\":\"%s\",\"age_ms\":%u,\"restarts\":%u,\"cmd_running\":%u,\"instances\":%u,"
+        "\"rx_ok\":%llu,\"refused\":%llu},",
+        strcmp(shm->pilot_transport, "udp") ? "local" : "udp", rx_guest_name[atomic_load(&shm->guest_state) % 5],
+        atomic_load(&shm->guest_age_ms), atomic_load(&shm->guest_restarts), atomic_load(&shm->guest_cmd_running),
+        atomic_load(&shm->udp_boots), (unsigned long long)atomic_load(&shm->udp_rx_ok),
+        (unsigned long long)(atomic_load(&shm->udp_rx_peer) + atomic_load(&shm->udp_rx_malformed) + atomic_load(&shm->udp_rx_replay)));
     ADD("\"interventions\":{");
     for (int i = 1; i < RX_R_COUNT; i++) ADD("%s\"%s\":%llu", i > 1 ? "," : "", rx_reason_name[i], (unsigned long long)atomic_load(&shm->interventions[i]));
     ADD("},\"hist\":[");

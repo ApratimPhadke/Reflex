@@ -55,7 +55,7 @@ else
   EXTRA   :=
 endif
 
-CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c
+CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c src/core/rx_guest.c
 UDP  := src/ipc/rx_ipc_udp.c
 HDRS := $(wildcard src/core/*.h src/ipc/*.h src/guardian/*.h src/tools/*.h)
 
@@ -79,8 +79,8 @@ $(OUT)/rxctl: src/tools/rxctl.c $(CORE) $(HDRS) | $(OUT)
 $(OUT)/rxdash: src/tools/rxdash.c src/tools/dash_html.h $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rxdash.c $(CORE) $(LIBS) $(NETLIBS)
 
-$(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c $(LIBS)
+$(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c src/core/rx_guest.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c src/core/rx_guest.c $(LIBS)
 
 $(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(LIBS)
