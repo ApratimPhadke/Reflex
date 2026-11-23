@@ -1,6 +1,7 @@
 /* rxctl - operator console, fault injector and evidence generator for Reflex.
  * SPDX-License-Identifier: MIT */
 #include <errno.h>
+#include <libgen.h>
 #include <math.h>
 #include <pthread.h>
 #include <sched.h>
@@ -10,9 +11,17 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #include "rx_shm.h"
+#include "rx_conf.h"
+#include "rx_guest.h"
+
+#ifndef RX_GIT
+#define RX_GIT "unknown"
+#endif
 
 static rx_shm_t *shm;
+static const char *argv0 = "rxctl";
 
 static void msleep(unsigned ms) { struct timespec t = { ms / 1000, (long)(ms % 1000) * 1000000L }; nanosleep(&t, NULL); }
 
@@ -41,7 +50,15 @@ static void usage(void)
          "  fallback on|off        fly on the fallback controller alone (the pilot keeps running, ignored)\n"
          "  stuck [N] [f.md]       inject stuck-at-full-tilt N times (default 5), report closest approach vs the strip, PASS/FAIL\n"
          "  bench [f.md] [--csv f] [--hold s]  same setpoint sequence with the AI, then fallback-only; compare\n"
-         "  script <file> [--check] play a timed demo script (demo/video.rxs); --check only validates it");
+         "  script <file> [--check] play a timed demo script (demo/video.rxs); --check only validates it\n"
+         "  guest <what> [secs]    pilot in a guest VM (pilot_transport = udp), over ssh (guest_ssh in reflex.conf):\n"
+         "                           panic     kernel panic in the guest (echo c > /proc/sysrq-trigger)\n"
+         "                           hog [s]   every guest CPU spinning at real-time priority (default 20 s)\n"
+         "                           badmodel  the guest's pilot sign-inverts its output (SIGUSR1); the guardian is not told\n"
+         "                           heal      undo badmodel / hog / freeze\n"
+         "                           kill | freeze   SIGKILL / SIGSTOP the guest's pilot\n"
+         "                         reflex.conf: $RX_CONF, else next to this binary\n"
+         "  campaign [file.md] [--guest]   --guest adds the guest stage (panic, hog, bad model, pilot killed)");
 }
 
 /* ------------------------------------------------------------------ latency */
@@ -169,6 +186,85 @@ static void cmd_incidents(const char *dir)
     }
 }
 
+/* ------------------------------------------------------------------ guest (pilot over UDP in a VM)
+ * The commands are fixed strings built here; only the ssh target comes from reflex.conf (checked by
+ * rx_conf_check_transport: user@host characters only), and it is passed to ssh as one argv element,
+ * never through a local shell. Nothing is taken from the shared memory, which any local user can write. */
+static int guest_target(char *ssh, size_t cap)
+{
+    char path[512], tmp[512], err[256];
+    const char *env = getenv("RX_CONF");
+    if (env && *env) snprintf(path, sizeof path, "%s", env);
+    else { snprintf(tmp, sizeof tmp, "%s", argv0); snprintf(path, sizeof path, "%s/reflex.conf", dirname(tmp)); }
+    rx_conf_t c;
+    if (rx_conf_load_any(&c, path, err, sizeof err) != 0) { fprintf(stderr, "rxctl guest: %s\n", err); return -1; }
+    if (!c.guest_ssh[0]) { fprintf(stderr, "rxctl guest: no guest_ssh in %s (user@host of the guest, or 'local')\n", path); return -1; }
+    snprintf(ssh, cap, "%s", c.guest_ssh);
+    return 0;
+}
+
+static int guest_cmd(const char *what, int secs, int quiet)
+{
+    char ssh[64];
+    if (guest_target(ssh, sizeof ssh) != 0) return -1;
+    const int local = !strcmp(ssh, "local");
+    char rc[600];
+    if (!strcmp(what, "panic")) {
+        if (local) { fprintf(stderr, "rxctl guest panic: refused with guest_ssh = local (it would crash THIS machine)\n"); return -1; }
+        snprintf(rc, sizeof rc, "nohup sh -c 'sleep 0.3; echo c > /proc/sysrq-trigger' >/dev/null 2>&1 </dev/null &");
+    } else if (!strcmp(what, "hog")) {
+        if (secs <= 0 || secs > 600) secs = 20;
+        /* in a guest: real-time priority, so the guest's own scheduler starves its pilot; on a local test machine: niced */
+        snprintf(rc, sizeof rc, "%s n=$(grep -c ^processor /proc/cpuinfo); [ \"$n\" -ge 1 ] || n=1; i=0; "
+                 "while [ $i -lt $n ]; do nohup timeout %d $P sh -c ': rxhog; while :; do :; done' >/dev/null 2>&1 </dev/null & i=$((i+1)); done",
+                 local ? "P='nice -n 19';" : "P=; command -v chrt >/dev/null 2>&1 && P='chrt -f 50';", secs);
+    } else if (!strcmp(what, "badmodel")) snprintf(rc, sizeof rc, "pkill -USR1 -x reflex-pilot");
+    else if (!strcmp(what, "heal"))  snprintf(rc, sizeof rc, "pkill -USR2 -x reflex-pilot; pkill -f 'rxho[g]'; pkill -CONT -x reflex-pilot; true");
+    else if (!strcmp(what, "kill"))  snprintf(rc, sizeof rc, "pkill -KILL -x reflex-pilot");
+    else if (!strcmp(what, "freeze")) snprintf(rc, sizeof rc, "pkill -STOP -x reflex-pilot");
+    else { fprintf(stderr, "rxctl guest: unknown '%s' (panic | hog [s] | badmodel | heal | kill | freeze)\n", what); return -1; }
+
+    pid_t pid = fork();
+    if (pid < 0) { perror("rxctl guest: fork"); return -1; }
+    if (pid == 0) {
+        if (quiet) { FILE *n = freopen("/dev/null", "w", stdout); (void)n; }
+        if (local) execl("/bin/sh", "sh", "-c", rc, (char *)NULL);
+        else execlp("ssh", "ssh", "-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "-o", "ServerAliveInterval=1",
+                    "-o", "ServerAliveCountMax=2", "-o", "StrictHostKeyChecking=accept-new", "--", ssh, rc, (char *)NULL);
+        _exit(127);
+    }
+    int ws = 0;
+    for (int i = 0; i < 300; i++) {                           /* 15 s */
+        if (waitpid(pid, &ws, WNOHANG) == pid) {
+            int code = WIFEXITED(ws) ? WEXITSTATUS(ws) : -1;
+            /* pkill exits 1 when nothing matched; a panic can cut the ssh session (255): neither is a failure here */
+            if (code == 0 || (code == 1 && strcmp(what, "panic")) || (code == 255 && !strcmp(what, "panic"))) return 0;
+            fprintf(stderr, "rxctl guest %s: %s exited with %d\n", what, local ? "sh" : "ssh", code);
+            return -1;
+        }
+        msleep(50);
+    }
+    kill(pid, SIGKILL); waitpid(pid, NULL, 0);
+    if (!strcmp(what, "panic")) return 0;                     /* the guest died under the session: that was the point */
+    fprintf(stderr, "rxctl guest %s: no answer from %s in 15 s\n", what, ssh);
+    return -1;
+}
+
+static int is_udp(void) { return !strcmp(shm->pilot_transport, "udp"); }
+
+/* inject a campaign fault: over UDP the pilot is not our child, so crash/freeze happen inside the guest */
+static int inject(const char *name, unsigned arg)
+{
+    if (is_udp() && !strcmp(name, "crash"))  return guest_cmd("kill", 0, 1);
+    if (is_udp() && !strcmp(name, "freeze")) return guest_cmd("freeze", 0, 1);
+    return rx_fault_apply(shm, name, arg);
+}
+static void clear_faults(void)
+{
+    rx_command(shm, "fault clear");
+    if (is_udp()) guest_cmd("heal", 0, 1);
+}
+
 /* ------------------------------------------------------------------ campaign */
 static int wait_ai(int ms)
 {
@@ -199,14 +295,16 @@ static void campaign(FILE *out)
     const int joint = !strcmp(shm->plant, "joint");
     const int run_ms = 4000;
     fprintf(out, "# Reflex fault campaign\n\n");
+    fprintf(out, "- build `%s`; pilot transport `%s`%s%s\n", RX_GIT, is_udp() ? "udp" : "local", is_udp() ? " from " : "", is_udp() ? shm->pilot_peer : "");
     fprintf(out, "- backend: `%s`, control rate %.0f Hz\n- each fault is injected into a healthy system and left active for %d s\n"
                  "- *without Reflex* = the same pilot, same faults, guardian in bypass (pilot commands go straight to the actuator)\n\n",
             shm->backend, shm->hz, run_ms / 1000);
     if (strcmp(shm->backend, "sim"))
         fprintf(out, "- *closest to the end* is the guardian's **estimate** (no ground truth on this backend; it includes sensor noise)\n\n");
     if (joint) fprintf(out, "- plant: **robot joint** (simulated); \"limit hit\" = the joint reached its hard stop\n\n");
-    fprintf(out, "| # | Injected pilot fault | Guardian took over after | %s | %s (with Reflex) | Pilot restarts | %s (without Reflex) |\n",
-            joint ? "Closest to the stop" : "Closest to beam end", joint ? "Joint" : "Ball", joint ? "Joint" : "Ball");
+    fprintf(out, "| # | Injected pilot fault | Guardian took over after | %s | %s (with Reflex) | %s | %s (without Reflex) |\n",
+            joint ? "Closest to the stop" : "Closest to beam end", joint ? "Joint" : "Ball", is_udp() ? "Pilot/guest restarts" : "Pilot restarts",
+            joint ? "Joint" : "Ball");
     fprintf(out, "|---|---|---|---|---|---|---|\n");
 
     int kept = 0, lost_without = 0, skipped = 0;
@@ -217,17 +315,17 @@ static void campaign(FILE *out)
         double detect_ms = -1, min_edge = 1e9; unsigned lost_g = 0, lost_b = 0, restarts = 0;
         int not_injected = 0;
         for (int pass = 0; pass < 2; pass++) {                  /* 0 = guarded, 1 = bypass */
-            rx_command(shm, "fault clear"); rx_command(shm, "guard on"); rx_command(shm, "release");
-            if (!wait_ai(10000)) fprintf(stderr, "campaign: warning, system did not return to AI mode before '%s'\n", F->name);
+            clear_faults(); rx_command(shm, "guard on"); rx_command(shm, "release");
+            if (!wait_ai(is_udp() ? 60000 : 10000)) fprintf(stderr, "campaign: warning, system did not return to AI mode before '%s'\n", F->name);
             /* always start a run at the same phase of the setpoint square wave: 1 s after it goes positive */
             { rx_rec_t r; float prev = 1; for (int t = 0; t < 12000; t += 5) { uint64_t h = atomic_load(&shm->head);
                 if (h && rx_shm_get(shm, h - 1, &r)) { if (prev < 0 && r.sp > 0) break; prev = r.sp; } msleep(5); } msleep(1000); }
             if (pass == 1) rx_command(shm, "guard off");
             unsigned b0 = atomic_load(&shm->balls_lost);
-            unsigned r0 = atomic_load(&shm->pilot_restarts) + atomic_load(&shm->pilot_kills);
+            unsigned r0 = atomic_load(&shm->pilot_restarts) + atomic_load(&shm->pilot_kills) + atomic_load(&shm->guest_restarts);
             uint64_t idx = atomic_load(&shm->head);
             uint64_t t_inj = rx_now_ns();
-            if (rx_fault_apply(shm, F->name, F->arg) != 0) {        /* e.g. no permission to signal the pilot */
+            if (inject(F->name, F->arg) != 0) {                     /* e.g. no permission to signal the pilot */
                 fprintf(stderr, "campaign: could not inject '%s' (%s): row marked NOT INJECTED\n", F->name, strerror(errno));
                 not_injected = 1;
             }
@@ -247,9 +345,9 @@ static void campaign(FILE *out)
                 msleep(10);
             }
             unsigned lost = atomic_load(&shm->balls_lost) - b0;
-            if (pass == 0) { lost_g = lost; restarts = atomic_load(&shm->pilot_restarts) + atomic_load(&shm->pilot_kills) - r0; }
+            if (pass == 0) { lost_g = lost; restarts = atomic_load(&shm->pilot_restarts) + atomic_load(&shm->pilot_kills) + atomic_load(&shm->guest_restarts) - r0; }
             else lost_b = lost;
-            rx_command(shm, "fault clear"); rx_command(shm, "guard on");
+            clear_faults(); rx_command(shm, "guard on");
             msleep(1500);                                       /* let a dropped ball be replaced */
         }
         char det[32] = "not needed";
@@ -279,8 +377,96 @@ static void campaign(FILE *out)
             joint ? "joint kept off its stops" : "ball kept", kept, ran, joint ? "limit hit" : "ball lost", lost_without, ran);
     if (skipped) fprintf(out, "**%d fault(s) could not be injected and are not counted above.**\n\n", skipped);
     fprintf(out, "```\n"); cmd_latency(out); fprintf(out, "```\n");
-    fprintf(out, "\nGuardian worst-case execution time per tick: %.1f us. Spoofed proposals refused: %u.\n",
-            atomic_load(&shm->exec_max_ns) / 1e3, atomic_load(&shm->rejected_senders));
+    fprintf(out, "\nGuardian worst-case execution time per tick: %.1f us. Spoofed proposals refused: %llu.\n",
+            atomic_load(&shm->exec_max_ns) / 1e3,
+            (unsigned long long)atomic_load(&shm->rejected_senders) + (unsigned long long)atomic_load(&shm->udp_rx_peer));
+}
+
+/* ------------------------------------------------------------------ campaign, guest stage
+ * Faults that start inside the pilot's own machine, the guest VM (pilot_transport = udp). Same method as the
+ * main table: inject into a healthy system, once with the guardian and once in bypass. After each run the guest
+ * is healed and the next run waits until the AI flies again; a panicked guest has to reboot first (by itself
+ * with panic=N on its kernel command line, or by the guardian's guest_restart_cmd). */
+typedef struct { const char *what, *desc; int secs, watch_ms; } gfault_t;
+static const gfault_t GFAULTS[] = {
+    { "panic",    "Linux kernel panic in the guest (`echo c > /proc/sysrq-trigger`)", 0, 8000 },
+    { "hog",      "every guest CPU spinning at real-time priority for 10 s", 10, 12000 },
+    { "badmodel", "the guest's pilot sign-inverts its output (signal inside the guest; the guardian is not told)", 0, 6000 },
+    { "kill",     "the guest's pilot killed (SIGKILL inside the guest)", 0, 6000 },
+};
+
+static void campaign_guest(FILE *out)
+{
+    const int joint = !strcmp(shm->plant, "joint");
+    char ssh[64] = "";
+    if (guest_target(ssh, sizeof ssh) != 0) {
+        fprintf(out, "\n## Guest stage\n\n**Not run:** no `guest_ssh` in reflex.conf, so faults cannot be started inside the guest.\n");
+        return;
+    }
+    fprintf(out, "\n## Guest stage: faults inside the AI's own operating system\n\n");
+    fprintf(out, "- pilot in a guest reached at `%s`, datagrams from `%s`; guest_timeout and the restart limiter as configured in reflex.conf\n",
+            ssh, shm->pilot_peer);
+    fprintf(out, "- *AI back after* = from the injection until the AI had flown for 1.5 s again (includes a guest reboot after a panic)\n\n");
+    fprintf(out, "| # | Fault inside the guest | Guardian took over after | Closest to the end | %s (with Reflex) | Guest restarts by the guardian | New pilot instances | AI back after | %s (without Reflex) |\n",
+            joint ? "Joint" : "Ball", joint ? "Joint" : "Ball");
+    fprintf(out, "|---|---|---|---|---|---|---|---|---|\n");
+    int kept = 0, lost_without = 0, ran = 0;
+    for (unsigned fi = 0; fi < sizeof GFAULTS / sizeof GFAULTS[0]; fi++) {
+        const gfault_t *F = &GFAULTS[fi];
+        if (!strcmp(F->what, "panic") && !strcmp(ssh, "local")) {
+            fprintf(out, "| G%u | %s | **NOT INJECTED** (guest_ssh = local) | - | - | - | - | - | - |\n", fi + 1, F->desc);
+            continue;
+        }
+        double detect_ms = -1, min_edge = 1e9, back_s = -1; unsigned lost_g = 0, lost_b = 0, rest = 0, inst = 0; int failed = 0;
+        for (int pass = 0; pass < 2 && !failed; pass++) {
+            clear_faults(); rx_command(shm, "guard on"); rx_command(shm, "release");
+            if (!wait_ai(240000)) fprintf(stderr, "campaign: warning, the AI did not fly before guest fault '%s'\n", F->what);
+            { rx_rec_t r; float prev = 1; for (int t = 0; t < 12000; t += 5) { uint64_t h = atomic_load(&shm->head);
+                if (h && rx_shm_get(shm, h - 1, &r)) { if (prev < 0 && r.sp > 0) break; prev = r.sp; } msleep(5); } msleep(1000); }
+            if (pass == 1) rx_command(shm, "guard off");
+            unsigned b0 = atomic_load(&shm->balls_lost), r0 = atomic_load(&shm->guest_restarts), i0 = atomic_load(&shm->udp_boots);
+            uint64_t idx = atomic_load(&shm->head), t_inj = rx_now_ns(), end = t_inj + (uint64_t)F->watch_ms * 1000000ull;
+            if (guest_cmd(F->what, F->secs, 1) != 0) { failed = 1; break; }
+            while (rx_now_ns() < end) {
+                uint64_t h = atomic_load(&shm->head); rx_rec_t r;
+                for (; idx < h; idx++) {
+                    if (!rx_shm_get(shm, idx, &r) || r.t_ns < t_inj || pass) continue;
+                    if (detect_ms < 0 && r.mode == RX_MODE_SAFE) detect_ms = (r.t_ns - t_inj) * 1e-6;
+                    float xx = isfinite(r.x_true) ? r.x_true : r.x;
+                    if (isfinite(xx) && shm->half_len - fabs(xx) < min_edge) min_edge = shm->half_len - fabs(xx);
+                }
+                msleep(10);
+            }
+            unsigned lost = atomic_load(&shm->balls_lost) - b0;
+            rx_command(shm, "guard on");
+            clear_faults();
+            if (pass == 0) {
+                lost_g = lost;
+                if (wait_ai(240000)) back_s = (rx_now_ns() - t_inj) * 1e-9 - 1.5;
+                rest = atomic_load(&shm->guest_restarts) - r0; inst = atomic_load(&shm->udp_boots) - i0;
+            } else lost_b = lost;
+            msleep(1500);
+        }
+        const char *desc = !strcmp(F->what, "hog") && !strcmp(ssh, "local") ? "every CPU spinning (local test: niced, not real-time) for 10 s" : F->desc;
+        if (failed) {
+            fprintf(out, "| G%u | %s | **NOT INJECTED** (could not reach the guest) | - | - | - | - | - | - |\n", fi + 1, desc);
+            fprintf(stderr, "campaign: guest %-8s NOT INJECTED\n", F->what);
+            continue;
+        }
+        char det[32] = "not needed", back[32] = "**not within 240 s**";
+        if (detect_ms >= 0) snprintf(det, sizeof det, "%.1f ms", detect_ms);
+        if (back_s >= 0) snprintf(back, sizeof back, "%.1f s", back_s);
+        if (joint) fprintf(out, "| G%u | %s | %s | %.1f deg | %s | %u | %u | %s | %s |\n", fi + 1, desc, det, min_edge * 57.29578,
+                           lost_g ? "**LIMIT HIT**" : "kept", rest, inst, back, lost_b ? "**LIMIT HIT**" : "kept");
+        else fprintf(out, "| G%u | %s | %s | %.1f cm | %s | %u | %u | %s | %s |\n", fi + 1, desc, det, min_edge * 100,
+                     lost_g ? "**LOST**" : "kept", rest, inst, back, lost_b ? "**LOST**" : "kept");
+        fflush(out);
+        ran++; if (!lost_g) kept++; if (lost_b) lost_without++;
+        fprintf(stderr, "campaign: guest %-8s guarded=%s bypass=%s\n", F->what, lost_g ? "LOST" : "kept", lost_b ? "LOST" : "kept");
+    }
+    rx_command(shm, "release");
+    fprintf(out, "\n**Guest stage, with Reflex: %s in %d of %d. Without Reflex: %s in %d of %d.**\n",
+            joint ? "joint kept off its stops" : "ball kept", kept, ran, joint ? "limit hit" : "ball lost", lost_without, ran);
 }
 
 /* ------------------------------------------------------------------ script
@@ -321,7 +507,7 @@ static int script_step(const char *ln, int run, int lineno, double t0)
         if (!ok) { fprintf(stderr, "line %d: unknown fault '%s'\n", lineno, a1); return -1; }
         if (!run) return 0;
         printf("[%6.1f s] inject %s\n", now, a1); fflush(stdout);
-        if (rx_fault_apply(shm, a1, k >= 3 ? (uint32_t)atoi(a2) : 0) != 0) printf("           (no pilot to inject into)\n");
+        if (inject(a1, k >= 3 ? (uint32_t)atoi(a2) : 0) != 0) printf("           (no pilot to inject into)\n");
         return 0;
     }
     int known = (!strcmp(w, "clear") || !strcmp(w, "release") || !strcmp(w, "reset")) && k == 1;
@@ -536,6 +722,7 @@ static int cmd_stuck(FILE *out, int n_runs)
 
 int main(int argc, char **argv)
 {
+    argv0 = argv[0];
     if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "help")) { usage(); return argc < 2 ? 2 : 0; }
     if (!strcmp(argv[1], "script") && argc >= 4 && !strcmp(argv[3], "--check")) return cmd_script(argv[2], 1);   /* no guardian needed */
     if (!strcmp(argv[1], "wipe")) {                            /* fresh world and counters for the next guardian */
@@ -558,7 +745,7 @@ int main(int argc, char **argv)
         for (;;) { rx_status_text(shm, buf, sizeof buf); printf("\033[H\033[2J%s", buf); fflush(stdout); msleep(200); }
     }
     else if (!strcmp(c, "inject") && argc >= 3) {
-        if (rx_fault_apply(shm, argv[2], argc >= 4 ? (uint32_t)atoi(argv[3]) : 0) != 0) { fprintf(stderr, "rxctl: could not inject '%s': %s\n", argv[2], strerror(errno)); return 1; }
+        if (inject(argv[2], argc >= 4 ? (uint32_t)atoi(argv[3]) : 0) != 0) { fprintf(stderr, "rxctl: could not inject '%s': %s\n", argv[2], strerror(errno)); return 1; }
         printf("injected: %s\n", argv[2]);
     }
     else if (!strcmp(c, "clear")) rx_command(shm, "fault clear");
@@ -607,11 +794,19 @@ int main(int argc, char **argv)
         snprintf(line, sizeof line, "fallback %s", argv[2]);
         if (rx_command(shm, line) != 0) { usage(); return 2; }
     }
-    else if (!strcmp(c, "campaign")) {
-        FILE *f = argc >= 3 ? fopen(argv[2], "w") : stdout;
-        if (!f) { perror(argv[2]); return 1; }
+    else if (!strcmp(c, "campaign")) {                         /* campaign [file.md] [--guest] */
+        const char *md = NULL; int guest = 0;
+        for (int i = 2; i < argc; i++) { if (!strcmp(argv[i], "--guest")) guest = 1; else md = argv[i]; }
+        if (guest && !is_udp()) { fprintf(stderr, "rxctl campaign --guest: the guardian's pilot transport is not udp\n"); return 2; }
+        FILE *f = md ? fopen(md, "w") : stdout;
+        if (!f) { perror(md); return 1; }
         campaign(f);
-        if (f != stdout) { fclose(f); printf("report written to %s\n", argv[2]); }
+        if (guest) campaign_guest(f);
+        if (f != stdout) { fclose(f); printf("report written to %s\n", md); }
+    }
+    else if (!strcmp(c, "guest") && argc >= 3) {
+        if (!is_udp()) fprintf(stderr, "rxctl guest: note, this guardian's pilot transport is local, not udp\n");
+        return guest_cmd(argv[2], argc >= 4 ? atoi(argv[3]) : 0, 0) == 0 ? 0 : 1;
     }
     else { usage(); return 2; }
     return 0;

@@ -24,6 +24,8 @@ TRACE ?= 1
 
 CFLAGS ?= -O2 -g
 CFLAGS += -std=gnu11 -Wall -Wextra -Isrc/core -Isrc/ipc -Isrc/guardian -Isrc/tools
+GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+CFLAGS += -DRX_GIT=\"$(GIT_HASH)\"
 ifeq ($(WERROR),1)
   CFLAGS += -Werror
 endif
