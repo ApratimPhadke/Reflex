@@ -16,6 +16,7 @@ static void transport_defaults(rx_conf_t *c)
     c->guest_boot_s = 15.0f;
     c->guest_restart_cmd[0] = 0;
     c->guest_ssh[0] = 0;
+    c->pilot_max_age_ms = 0;
     c->has_transport = 0;
 }
 
@@ -57,6 +58,8 @@ int rx_conf_check_transport(const rx_conf_t *c, char *err, size_t errcap)
         ERR("pilot_transport = udp needs pilot_peer = a.b.c.d:port (the pilot's address; not 0.0.0.0, not port 0)");
     if (!(c->guest_timeout_s >= 0.05f && c->guest_timeout_s <= 30.0f)) ERR("guest_timeout_s %g outside 0.05..30", (double)c->guest_timeout_s);
     if (!(c->guest_boot_s >= 1.0f && c->guest_boot_s <= 600.0f)) ERR("guest_boot_s %g outside 1..600", (double)c->guest_boot_s);
+    if (!(c->pilot_max_age_ms == 0 || (c->pilot_max_age_ms >= 10.0f && c->pilot_max_age_ms <= 200.0f)))
+        ERR("pilot_max_age_ms %g outside 10..200 (or 0 for the default)", (double)c->pilot_max_age_ms);
     for (const char *q = c->guest_restart_cmd; *q; q++)
         if (*q < 32 || *q > 126 || *q == '#') ERR("guest_restart_cmd: only printable characters, no '#' (it would start a comment)");
     if (c->guest_ssh[0] && strcmp(c->guest_ssh, "local")) {
@@ -73,7 +76,7 @@ static const char *const KEYS[] = { "level_us", "us_per_mrad", "servo_dir", "cen
                                     "range_min_mm", "range_max_mm", "half_len_m", "calibrated_at", "board",
                                     /* optional: pilot transport */
                                     "pilot_transport", "pilot_bind", "pilot_peer", "guest_timeout_s", "guest_boot_s",
-                                    "guest_restart_cmd", "guest_ssh" };
+                                    "guest_restart_cmd", "guest_ssh", "pilot_max_age_ms" };
 
 static int set_transport(rx_conf_t *c, unsigned i, const char *k, const char *v, char *err, size_t errcap)
 {
@@ -85,10 +88,10 @@ static int set_transport(rx_conf_t *c, unsigned i, const char *k, const char *v,
         else if (!strcmp(v, "udp")) c->pilot_udp = 1;
         else ERR("pilot_transport must be local or udp, not '%s'", v);
         return 0;
-    case 13: case 14: {
+    case 13: case 14: case 17: {
         float f = strtof(v, &end);
         if (end == v || *end || !isfinite(f)) ERR("%s: '%s' is not a number", k, v);
-        if (i == 13) c->guest_timeout_s = f; else c->guest_boot_s = f;
+        if (i == 13) c->guest_timeout_s = f; else if (i == 14) c->guest_boot_s = f; else c->pilot_max_age_ms = f;
         return 0;
     }
     default: {
@@ -220,6 +223,11 @@ int rx_conf_format(const rx_conf_t *c, char *buf, size_t cap)
             (double)c->guest_timeout_s, (double)c->guest_boot_s, c->guest_restart_cmd, c->guest_ssh);
         if (t < 0 || (size_t)(k + t) >= cap) return -1;
         k += t;
+        if (c->pilot_max_age_ms > 0) {
+            t = snprintf(buf + k, cap - (size_t)k, "pilot_max_age_ms  = %.0f\n", (double)c->pilot_max_age_ms);
+            if (t < 0 || (size_t)(k + t) >= cap) return -1;
+            k += t;
+        }
     }
     return k;
 }

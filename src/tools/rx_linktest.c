@@ -202,20 +202,23 @@ static void transport_cases(void)
 {
     rx_conf_t c, d; char err[200], buf[2048];
     CHECK(rx_conf_parse(&c, GOOD, err, sizeof err) == 0 && !c.pilot_udp && !c.has_transport &&
-          !strcmp(c.pilot_bind, "0.0.0.0:47800") && fabsf(c.guest_timeout_s - 1.0f) < 1e-6f && fabsf(c.guest_boot_s - 15.0f) < 1e-6f,
-          "calibration-only file: transport defaults wrong (%s)", err);
+          !strcmp(c.pilot_bind, "0.0.0.0:47800") && fabsf(c.guest_timeout_s - 1.0f) < 1e-6f && fabsf(c.guest_boot_s - 15.0f) < 1e-6f &&
+          c.pilot_max_age_ms == 0, "calibration-only file: transport defaults wrong (%s)", err);
     rx_conf_format(&c, buf, sizeof buf);
     CHECK(!strstr(buf, "pilot_transport"), "calibration-only file grew transport keys on format");
     const char *only = "pilot_transport = udp\npilot_bind = 10.0.0.1:47800\npilot_peer = 10.0.0.2:47801\n"
-                       "guest_timeout_s = 0.5\nguest_boot_s = 40\nguest_restart_cmd = /guests/restart.sh --hard\nguest_ssh = root@10.0.0.2\n";
+                       "guest_timeout_s = 0.5\nguest_boot_s = 40\nguest_restart_cmd = /guests/restart.sh --hard\nguest_ssh = root@10.0.0.2\n"
+                       "pilot_max_age_ms = 100\n";
     CHECK(rx_conf_parse(&c, only, err, sizeof err) != 0 && strstr(err, "missing key"), "transport-only file passed the strict parser");
     CHECK(rx_conf_parse_any(&c, only, err, sizeof err) == 0, "transport-only file rejected: %s", err);
     CHECK(c.pilot_udp && !strcmp(c.pilot_peer, "10.0.0.2:47801") && !strcmp(c.pilot_bind, "10.0.0.1:47800") &&
           fabsf(c.guest_timeout_s - 0.5f) < 1e-6f && fabsf(c.guest_boot_s - 40) < 1e-6f &&
           !strcmp(c.guest_restart_cmd, "/guests/restart.sh --hard") && !strcmp(c.guest_ssh, "root@10.0.0.2") &&
+          fabsf(c.pilot_max_age_ms - 100) < 1e-6f &&
           c.level_us == 1500 && !strcmp(c.calibrated_at, "uncalibrated"), "transport-only file: wrong values");
     CHECK(rx_conf_format(&c, buf, sizeof buf) > 0 && rx_conf_parse(&d, buf, err, sizeof err) == 0 && d.pilot_udp &&
-          !strcmp(d.pilot_peer, c.pilot_peer) && !strcmp(d.guest_restart_cmd, c.guest_restart_cmd) && !strcmp(d.guest_ssh, c.guest_ssh),
+          !strcmp(d.pilot_peer, c.pilot_peer) && !strcmp(d.guest_restart_cmd, c.guest_restart_cmd) && !strcmp(d.guest_ssh, c.guest_ssh) &&
+          fabsf(d.pilot_max_age_ms - 100) < 1e-6f,
           "transport round trip: %s", err);
     char both[2048]; snprintf(both, sizeof both, "%s%s", GOOD, only);
     CHECK(rx_conf_parse(&c, both, err, sizeof err) == 0 && c.pilot_udp && c.level_us == 1530, "calibration + transport: %s", err);
@@ -233,6 +236,8 @@ static void transport_cases(void)
         { "pilot_bind =\n", "empty" },
         { "guest_timeout_s = 0.01\n", "guest_timeout_s" }, { "guest_timeout_s = nan\n", "number" },
         { "guest_boot_s = 0\n", "guest_boot_s" },
+        { "pilot_max_age_ms = 5\n", "pilot_max_age_ms" }, { "pilot_max_age_ms = 201\n", "pilot_max_age_ms" },
+        { "pilot_max_age_ms = -1\n", "pilot_max_age_ms" }, { "pilot_max_age_ms = inf\n", "number" },
         { "guest_ssh = -oProxyCommand=x\n", "must not start" }, { "guest_ssh = root@h;rm\n", "only user@host" },
         { "guest_restart_cmd = a\tb\n", "printable" },
         { "pilot_transport = udp\npilot_transport = udp\n", "twice" },

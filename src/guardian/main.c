@@ -308,6 +308,10 @@ int main(int argc, char **argv)
     /* where the pilot runs: spawned here and reached by message passing, or somewhere else over UDP
      * (e.g. a Linux guest under QNX Hypervisor). Either way its proposals are judged identically. */
     const int udp = conf.pilot_udp;
+    /* a pilot across a network answers later than one on the same CPU: reflex.conf may set how old its command
+     * may be (pilot_max_age_ms, chosen from a measured round trip). This is the stale check only; the command is
+     * still judged by the envelope, range and NaN checks from the current state, every tick. */
+    if (udp && conf.pilot_max_age_ms > 0) cfg.max_age_s = conf.pilot_max_age_ms * 1e-3f;
     const int spawn_local = !o.no_pilot && !udp;
     {   /* who the untrusted pilot runs as */
         if (o.pilot_user) {
@@ -396,7 +400,11 @@ int main(int argc, char **argv)
     }
 
     char pilot_desc[600];
-    if (udp) snprintf(pilot_desc, sizeof pilot_desc, "udp %s <- %s", conf.pilot_bind, conf.pilot_peer);
+    if (udp) {
+        unsigned ma = (unsigned)(cfg.max_age_s * cfg.hz + 0.5f); if (ma < 2) ma = 2;     /* as rx_guard_step rounds it */
+        snprintf(pilot_desc, sizeof pilot_desc, "udp %s <- %s, stale after %u ticks (%.0f ms)%s", conf.pilot_bind, conf.pilot_peer,
+                 ma, ma * 1e3 / cfg.hz, conf.pilot_max_age_ms > 0 ? " from pilot_max_age_ms" : "");
+    }
     else snprintf(pilot_desc, sizeof pilot_desc, "%s", o.no_pilot ? "(none)" : o.pilot_path);
     fprintf(stderr, "[guardian] pid %d  %s  %.0f Hz  plant=%s  prio=%d  pilot=%s%s\n", getpid(), rx_ipc_backend(),
             cfg.hz, io->name, o.prio, pilot_desc,

@@ -111,6 +111,16 @@ Optional keys say where the untrusted pilot runs: `pilot_transport = local` (def
 
 The parser rejects a missing, unknown or duplicated key and any value out of range, and `--backend serial` refuses to start without a valid file (`--uncalibrated` for debugging). `half_len_m` may only shorten the kernel's beam (0.10..0.20 m), never lengthen it. Unit tests: `rx_linktest`; the wizard end to end against a fake rig with a deliberately wrong hidden calibration: `make test-cal`.
 
+### Stale timeout over a network (`pilot_max_age_ms`)
+
+A pilot on the same CPU answers within the tick it was asked in; one across Wi-Fi does not. The guardian counts a proposal's age in control ticks since the state it was computed from (`age_ticks`, from the state sequence number the pilot echoes) and refuses it as stale above `max_age_s` (`rx_guard_step`). Over UDP the proposal is taken from the mailbox at a tick, so a reply with round trip *r* is about ⌈*r* / period⌉ ticks old when the guardian uses it.
+
+`pilot_max_age_ms` in `reflex.conf` (UDP only, 10..200 ms, rounded to whole periods) sets that bound from a measured round trip instead of the same-CPU default (2 periods with the simulator configuration, 3 with the hardware configuration at 50 Hz). The guardian prints the result at start: `stale after N ticks`.
+
+The two-box setup (guardian on the Pi, pilot on a laptop over Wi-Fi, `scripts/two-box-sim.sh`) uses **100 ms = 5 periods at 50 Hz**. The number comes from `results/2026-11-23-wifi-link/` (Pi 4 <-> laptop over Wi-Fi, 15 000 probes at 50 Hz, state- and proposal-sized datagrams): the p99 round trip was 65.4 ms. Rounded up to the next tick that is already 4 periods, and one more period covers the helper threads and the pilot's own computation. On that recording 0.56 % of replies were later than 100 ms or lost, against 1.8 % at 40 ms and 1.1 % at 60 ms. At 200 ms it would have been 0.08 %, but the AI would then be flying commands computed from a state a fifth of a second old, which costs more control quality than it saves.
+
+What this does not change: every command, of any age, is judged from the *current* state estimate by the same non-finite, range and one-step envelope checks in `rx_guard_step`. A late command can cost the AI control, never the ball. `rx_cfg_default()` and `rx_cfg_hardware()` are unchanged, and the key is ignored with `pilot_transport = local`. The age rests on a sequence number the untrusted pilot echoes; a pilot that lies about it gains nothing a pilot sending bad commands could not, because the envelope check does not use the age.
+
 ## Telemetry
 
 The guardian never prints from its control loop: a console write can block for milliseconds. Everything it has to say goes into a wait-free event log in shared memory (`rxctl events`, dashboard, `cat /dev/reflex`). `rxctl incidents <dir>` is a flight recorder that saves one second before and after every intervention.
