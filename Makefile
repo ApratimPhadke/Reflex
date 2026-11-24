@@ -99,8 +99,8 @@ $(OUT)/rxfs: src/qnx/rxfs.c $(CORE) $(HDRS) | $(OUT)
 
 # beam-direct rig on the Pi itself (GPIO/PWM/I2C, no microcontroller): bring-up and sensor checks
 HW := src/hw/rx_rpi.c
-$(OUT)/rxhw: src/hw/rxhw.c $(HW) src/hw/rx_rpi.h | $(OUT)
-	$(CC) $(CFLAGS) -Isrc/hw -o $@ src/hw/rxhw.c $(HW) -lm
+$(OUT)/rxhw: src/hw/rxhw.c $(HW) src/hw/rx_rpi.h src/core/rx_conf.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -Isrc/hw -o $@ src/hw/rxhw.c $(HW) src/core/rx_conf.c src/core/rx_wire.c -lm
 
 $(OUT)/rxham: src/qnx/rxham.c | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxham.c -Wl,-Bstatic -lham -Wl,-Bdynamic   # libham.so is not on the Pi 4 quick-start image

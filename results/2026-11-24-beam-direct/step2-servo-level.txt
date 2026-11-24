@@ -1,0 +1,33 @@
+date: 2026-11-25 IST (link 15 cm from the hinge, user's shortened support)
+commit: 01f9d5e8dee7228821e3a64f65d89856bc01da4d + rxhw servo-level (this commit)
+command: ssh qnxpi 'cd reflex && ./rxhw servo-level reflex.conf 30'
+
+limits 820..1934 us from reflex.conf; start 1504 us
+  1504 us  tilt +17.27 deg
+  1523 us  tilt +17.11 deg
+  1543 us  tilt +16.95 deg
+  1563 us  tilt +16.77 deg
+  1582 us  tilt +16.68 deg
+  1602 us  tilt +16.52 deg
+  1621 us  tilt +16.44 deg
+  1641 us  tilt +16.35 deg
+  1660 us  tilt +16.35 deg
+  1680 us  tilt +16.10 deg
+  1699 us  tilt +16.16 deg
+  1719 us  tilt +15.80 deg
+  1738 us  tilt +15.77 deg
+  1758 us  tilt +15.72 deg
+  1777 us  tilt +15.80 deg
+  1797 us  tilt +15.50 deg
+  1816 us  tilt +15.40 deg
+  1836 us  tilt +15.27 deg
+  1855 us  tilt +15.17 deg
+  1875 us  tilt +15.07 deg
+  1895 us  tilt +15.07 deg
+  1914 us  tilt +15.03 deg
+  1934 us  tilt +14.80 deg
+  reached the saved limit 1934 us
+
+RESULT most level reachable: 1934 us, tilt +14.83 deg (MPU, sign: + = hinge/sensor end higher) AT THE SAVED LIMIT: level is not reachable
+holding 30 s for a look...
+servo limp (holding current peak avg 9 mA, peak 1457 mA, min supply 2.94 V)

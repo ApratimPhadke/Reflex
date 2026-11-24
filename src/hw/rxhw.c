@@ -20,6 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "rx_rpi.h"
+#include "rx_conf.h"
 #ifndef RX_GIT
 #define RX_GIT "unknown"
 #endif
@@ -365,6 +366,55 @@ static int cmd_servo_cal(int bus)
     return 0;
 }
 
+/* Level the beam with the MPU as the only feedback, never outside servo_min_us..servo_max_us of reflex.conf.
+ * Beam tilt here = rotation about the MPU's y axis (the hinge axis the sweeps found: (0, -0.99, -0.13)). */
+static float beam_tilt(const float g[3]) { return rad2deg(atan2f(-g[0], g[2])); }
+static int cmd_servo_level(int bus, const char *conf_path, double hold_s)
+{
+    rx_conf_t cf; char err[200];
+    if (rx_conf_load(&cf, conf_path, err, sizeof err) != 0) { printf("%s\n", err); return 1; }
+    if (!cf.servo_min_us) { printf("%s has no servo_min_us/servo_max_us: run servo-cal first\n", conf_path); return 1; }
+    unsigned lo = us2c((float)cf.servo_min_us), hi = us2c((float)cf.servo_max_us);
+    while (c2us(lo) < cf.servo_min_us) lo++;
+    while (c2us(hi) > cf.servo_max_us) hi--;
+    s_fd = rx_i2c_open(bus);
+    if (s_fd < 0 || rx_gpio_open() != 0 || rx_mpu_init(s_fd, A_MPU1, NULL) != 0) { perror("rxhw servo-level"); return 1; }
+    unsigned c = us2c(1500); if (c < lo) c = lo; if (c > hi) c = hi;
+    printf("limits %.0f..%.0f us from %s; start %.0f us\n", c2us(lo), c2us(hi), conf_path, c2us(c));
+    if (rx_gpio_pwm_setup(PIN_SERVO, 50, PWM_RANGE) != 0 || rx_gpio_pwm_duty(PIN_SERVO, c) != 0) { servo_limp(); perror("PWM"); return 1; }
+    if (wait_watch(1500, NULL) != 0) { servo_limp(); return 1; }
+    float g[3]; if (gravity(g) != 0) { servo_limp(); return 1; }
+    float t = beam_tilt(g), best_t = t; unsigned best_c = c;
+    printf("  %4.0f us  tilt %+6.2f deg\n", c2us(c), t); fflush(stdout);
+    /* direction from the sweeps (step2-servo-cal-*): a larger pulse lifts the servo end and lowers the tilt.
+     * A one-count probe is not used: its 0.1 deg effect is within the MPU noise. */
+    int dir = 0;
+    if (!dir) dir = (t > 0) ? 1 : -1;                              /* sweep data: a larger pulse lowers the tilt */
+    for (;;) {
+        unsigned nc = c + (unsigned)dir;
+        if (nc < lo || nc > hi) { printf("  reached the saved limit %.0f us\n", c2us(c)); break; }
+        c = nc; rx_gpio_pwm_duty(PIN_SERVO, c);
+        if (wait_watch(300, NULL) != 0) { servo_limp(); return 1; }
+        if (gravity(g) != 0) { servo_limp(); return 1; }
+        t = beam_tilt(g);
+        printf("  %4.0f us  tilt %+6.2f deg\n", c2us(c), t); fflush(stdout);
+        if (fabsf(t) < fabsf(best_t)) { best_t = t; best_c = c; }
+        if (fabsf(t) < 0.2f) break;
+        if ((t > 0) != (best_t > 0) || fabsf(t) > fabsf(best_t) + 0.3f) break;   /* crossed level or got worse */
+    }
+    move_slow(c, best_c);
+    if (wait_watch(800, NULL) != 0) { servo_limp(); return 1; }
+    gravity(g);
+    printf("\nRESULT most level reachable: %.0f us, tilt %+.2f deg (MPU, sign: + = hinge/sensor end higher)%s\n",
+           c2us(best_c), beam_tilt(g), best_c == lo || best_c == hi ? " AT THE SAVED LIMIT: level is not reachable" : "");
+    printf("holding %.0f s for a look...\n", hold_s); fflush(stdout);
+    double t0 = now_s(); float pk = 0;
+    while (now_s() - t0 < hold_s) { float a; if (wait_watch(500, &a) != 0) return 1; if (a > pk) pk = a; }
+    servo_limp();
+    printf("servo limp (holding current peak avg %.0f mA, peak %.0f mA, min supply %.2f V)\n", pk * 1000, s_peak_a * 1000, s_min_v);
+    return 0;
+}
+
 static int cmd_led(int n)
 {
     if (rx_gpio_output(PIN_LED, 0) != 0) { perror("rxhw led"); return 1; }
@@ -406,6 +456,7 @@ int main(int argc, char **argv)
         if (argc >= 4) { s_lo_us = fmaxf(500, (float)atof(argv[2])); s_hi_us = fminf(2500, (float)atof(argv[3])); }
         return cmd_servo_cal(bus);
     }
+    if (!strcmp(argv[1], "servo-level")) return cmd_servo_level(bus, argc >= 3 ? argv[2] : "reflex.conf", argc >= 4 ? atof(argv[3]) : 30);
     if (!strcmp(argv[1], "servo-off")) { if (rx_gpio_pwm_duty(PIN_SERVO, 0) != 0) { perror("servo-off"); return 1; } printf("servo limp\n"); return 0; }
     if (!strcmp(argv[1], "led")) return cmd_led(argc >= 3 ? atoi(argv[2]) : 5);
     if (!strcmp(argv[1], "sonar") && argc >= 3) return cmd_sonar(atoi(argv[2]), argc >= 4 ? atoi(argv[3]) : 50);
