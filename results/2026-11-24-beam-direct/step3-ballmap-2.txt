@@ -1,0 +1,24 @@
+date: 2026-11-25 IST; sensor re-aimed by the user (two rxhw aim sessions, step3-aim-*.txt)
+commit: cbbc8137c39c35130203d2f0618b8176f7fa77b9 + rx_sonar filter, rxhw aim/ballmap/track (this commit)
+command: ssh qnxpi 'cd reflex && ./rxhw ballmap 30 300'
+
+
+[hinge-stop] hold the ball there, then press the button
+hinge-stop 100 pings in 3.0 s (33.3 Hz): ball-range (<300 mm) 100 (100 %), farther 0, no echo 0
+           median 58.9 mm, mean 58.9, sd 0.1, p10 58.8, p90 59.0, min 58.1, max 59.1
+           histogram (10 mm bins): 50:100
+
+[centre] hold the ball there, then press the button
+centre     100 pings in 3.0 s (33.3 Hz): ball-range (<300 mm) 100 (100 %), farther 0, no echo 0
+           median 105.7 mm, mean 105.7, sd 0.1, p10 105.6, p90 105.8, min 104.9, max 106.0
+           histogram (10 mm bins): 100:100
+
+[far-stop] hold the ball there, then press the button
+far-stop   100 pings in 3.0 s (33.3 Hz): ball-range (<300 mm) 0 (0 %), farther 100, no echo 0
+
+[still] leave the ball still at the centre, hands away, then press the button
+still      334 pings in 10.0 s (33.3 Hz): ball-range (<300 mm) 331 (99 %), farther 3, no echo 0
+           median 119.4 mm, mean 119.7, sd 3.7, p10 119.3, p90 119.5, min 118.1, max 167.1
+           histogram (10 mm bins): 110:329 160:2
+
+done (raw readings in ballmap.csv)

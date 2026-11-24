@@ -11,6 +11,7 @@
 #include "rx_core.h"
 #include "rx_learner.h"
 #include "rx_guest.h"
+#include "rx_sonar.h"
 
 static uint64_t rng = 0x9E3779B97F4A7C15ull;
 static double urand(void) { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return (rng >> 11) / 9007199254740992.0; }
@@ -264,6 +265,52 @@ static int guest_test(void)
     return bad;
 }
 
+/* Ultrasonic ball filter (beam-direct): a ball swinging +-40 mm at 0.3 Hz seen at 50 Hz with 0.3 mm noise,
+ * 5 % dropouts, 3 % spikes (the room at 625 mm, a ghost at 167 mm, as on the rig in step3-ballmap-2), and a
+ * 0.5 s stretch out of sight while it moves. No spike may get through; the position must track; the ball must
+ * be re-acquired within 3 ticks of coming back; the guardian's estimator then gives the velocity. */
+static int sonar_test(void)
+{
+    printf("== ultrasonic ball filter (beam-direct): range gate, spike gate, median of 3 ==\n");
+    rx_sonar_cfg_t sc; rx_sonar_cfg_default(&sc);
+    rx_sonar_filt_t f; rx_sonar_init(&f, &sc);
+    rx_cfg_t c; rx_cfg_default(&c, 50.0f); c.est_tau = 0.04f;
+    rx_est_t e = { 0, 0, 0 };
+    uint64_t r = 0x9E3779B97F4A7C15ull;
+    const float dt = 0.02f; int bad = 0, n_spk = 0, gaps_end = -1, reacq_tick = -1;
+    double err_max = 0, err2 = 0, verr2 = 0; int nerr = 0, nverr = 0;
+    for (int i = 0; i < 3000; i++) {                       /* 60 s */
+        double t = i * dt, x = 106.0 + 40.0 * sin(2 * M_PI * 0.3 * t), v = 40.0 * 2 * M_PI * 0.3 * cos(2 * M_PI * 0.3 * t);
+        r = r * 6364136223846793005ull + 1442695040888963407ull; double u = (double)(r >> 11) / 9007199254740992.0;
+        r = r * 6364136223846793005ull + 1442695040888963407ull; double u2 = (double)(r >> 11) / 9007199254740992.0;
+        float raw = (float)(x + 0.6 * (u2 - 0.5));
+        int spike = 0, hidden = i >= 1500 && i < 1525;     /* out of sight for 0.5 s */
+        if (hidden) raw = 640.0f;
+        else if (u < 0.05) raw = -1.0f;
+        else if (u < 0.065) { raw = 625.0f; spike = 1; }
+        else if (u < 0.08) { raw = 167.0f; spike = 1; }
+        if (i == 1525) gaps_end = i;
+        float z;
+        if (rx_sonar_step(&f, raw, dt, &z)) {
+            if (spike && fabsf(z - raw) < 1e-3f && fabs(x - raw) > 20) { n_spk++; }
+            double er = fabs(z - x);
+            if (i > 10) { err_max = er > err_max ? er : err_max; err2 += er * er; nerr++; }
+            if (gaps_end >= 0 && reacq_tick < 0) reacq_tick = i - gaps_end;
+            rx_est_update(&e, &c, z * 1e-3f);
+        } else rx_est_predict(&e, &c);
+        if (i > 100 && !hidden && !(i >= 1525 && i < 1560)) { double ve = e.v * 1e3 - v; verr2 += ve * ve; nverr++; }
+    }
+    double rms = sqrt(err2 / nerr), vrms = sqrt(verr2 / nverr);
+    printf("  %u readings: %u gated, %u spikes refused, %u re-acquisitions, %u accepted\n", f.n_in, f.n_gated, f.n_spikes, f.n_reacq, f.n_ok);
+    printf("  position error rms %.2f mm, max %.2f mm; spikes passed %d; re-acquired %d ticks after coming back; velocity error rms %.1f mm/s\n",
+           rms, err_max, n_spk, reacq_tick, vrms);
+    if (n_spk) { printf("  FAIL: %d spikes passed the filter\n", n_spk); bad = 1; }
+    if (err_max > 6.0) { printf("  FAIL: position error up to %.1f mm (want < 6)\n", err_max); bad = 1; }
+    if (reacq_tick < 0 || reacq_tick > 3) { printf("  FAIL: re-acquired after %d ticks (want <= 3)\n", reacq_tick); bad = 1; }
+    if (vrms > 25.0) { printf("  FAIL: velocity error rms %.1f mm/s (want < 25)\n", vrms); bad = 1; }
+    return bad;
+}
+
 int main(void)
 {
     static const char *names[] = { "none", "nan", "flip", "stuck", "huge", "slow", "spin(hang)", "crash" };
@@ -369,6 +416,7 @@ int main(void)
 
     printf("\n== guest supervision (pilot over UDP): restart limiter, simulated time ==\n");
     if (guest_test()) fail = 1;
+    if (sonar_test()) fail = 1;
 
     printf("\n%s\n", fail ? "SIMTEST FAILED" : "SIMTEST PASSED");
     return fail;

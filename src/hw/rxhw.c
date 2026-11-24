@@ -22,6 +22,8 @@
 #include <unistd.h>
 #include "rx_rpi.h"
 #include "rx_conf.h"
+#include "rx_core.h"
+#include "rx_sonar.h"
 #ifndef RX_GIT
 #define RX_GIT "unknown"
 #endif
@@ -700,6 +702,65 @@ static int cmd_ballmap(int period_ms, float near_mm)
     return 0;
 }
 
+/* Live aiming aid: ping continuously for secs; the LED is on while echoes come from closer than near_mm (the ball),
+ * off when they come from farther (the room). Prints a summary every second. Read-only. */
+static int cmd_aim(double secs, float near_mm)
+{
+    if (rx_gpio_open() != 0) { perror("rxhw aim"); return 1; }
+    rx_gpio_output(PIN_LED, 0);
+    rx_sonar_t so; if (rx_sonar_open(&so, PIN_TRIG, PIN_ECHO) != 0) { perror("sonar"); return 1; }
+    double t0 = now_s(), tp = t0; int n = 0, hit = 0, tot = 0, toth = 0; float last = -1, sum = 0;
+    while (now_s() - t0 < secs) {
+        float mm = rx_sonar_measure(&so, 40, NULL);
+        int h = mm > 0 && mm < near_mm;
+        rx_gpio_write(PIN_LED, h);
+        n++; tot++; if (h) { hit++; toth++; sum += mm; last = mm; }
+        if (now_s() - tp >= 1.0) {
+            printf("t=%4.0f s  ball seen in %3d %% of pings  %s\n", now_s() - t0, 100 * hit / (n ? n : 1),
+                   hit ? "" : "(only the room)");
+            if (hit) printf("           mean ball distance %.0f mm (last %.0f)\n", sum / hit, last);
+            fflush(stdout); tp = now_s(); n = hit = 0; sum = 0;
+        }
+        usleep(30000);
+    }
+    rx_gpio_write(PIN_LED, 0);
+    printf("overall: ball seen in %d of %d pings (%.0f %%)\n", toth, tot, 100.0 * toth / (tot ? tot : 1));
+    return 0;
+}
+
+/* The guardian's sensing chain on the real sensor: one ping per 20 ms tick, rx_sonar filter, rx_est g-h
+ * estimator (est_tau as given). Prints every 0.5 s; summary: rate, accepted/gated/spikes, position and
+ * velocity spread. Read-only. Rows in track.csv (t, raw, filtered or -1, x_est, v_est). */
+static int cmd_track(double secs, float est_tau)
+{
+    if (rx_gpio_open() != 0) { perror("rxhw track"); return 1; }
+    rx_sonar_t so; if (rx_sonar_open(&so, PIN_TRIG, PIN_ECHO) != 0) { perror("sonar"); return 1; }
+    rx_sonar_cfg_t sc; rx_sonar_cfg_default(&sc);
+    rx_sonar_filt_t f; rx_sonar_init(&f, &sc);
+    rx_cfg_t c; rx_cfg_default(&c, 50.0f); c.est_tau = est_tau;
+    rx_est_t e = { 0, 0, 0 };
+    FILE *csv = fopen("track.csv", "w"); if (csv) fprintf(csv, "t_s,raw_mm,filt_mm,x_mm,v_mm_s\n");
+    double t0 = now_s(), next = t0, tp = t0, sx = 0, sx2 = 0, sv = 0, sv2 = 0, late = 0; int n = 0, ns = 0;
+    while (now_s() - t0 < secs) {
+        float raw = rx_sonar_measure(&so, 15, NULL), z;          /* 15 ms: anything later is not the ball */
+        int ok = rx_sonar_step(&f, raw, 0.02f, &z);
+        if (ok) rx_est_update(&e, &c, z * 1e-3f); else rx_est_predict(&e, &c);
+        n++;
+        if (e.init) { sx += e.x * 1e3; sx2 += e.x * 1e3 * e.x * 1e3; sv += e.v * 1e3; sv2 += e.v * 1e3 * e.v * 1e3; ns++; }
+        if (csv) fprintf(csv, "%.3f,%.1f,%.1f,%.2f,%.1f\n", now_s() - t0, raw, ok ? z : -1.0f, e.x * 1e3, e.v * 1e3);
+        if (now_s() - tp >= 0.5) { tp = now_s(); printf("t=%5.1f  raw %6.1f  ball %6.1f mm  v %+6.1f mm/s\n", now_s() - t0, raw, e.x * 1e3, e.v * 1e3); fflush(stdout); }
+        next += 0.02; double w = next - now_s();
+        if (w > 0) usleep((useconds_t)(w * 1e6)); else late++;
+    }
+    if (csv) fclose(csv);
+    double dt = now_s() - t0, mx = sx / ns, mv = sv / ns;
+    printf("\n%d ticks in %.1f s (%.1f Hz, %.0f late): accepted %u, gated %u, spikes refused %u, re-acquired %u\n",
+           n, dt, n / dt, late, f.n_ok, f.n_gated, f.n_spikes, f.n_reacq);
+    printf("estimate: x mean %.1f mm sd %.2f mm; v mean %+.1f mm/s sd %.1f mm/s (est_tau %.3f s)\n",
+           mx, sqrt(fmax(0, sx2 / ns - mx * mx)), mv, sqrt(fmax(0, sv2 / ns - mv * mv)), est_tau);
+    return 0;
+}
+
 static int cmd_led(int n)
 {
     if (rx_gpio_output(PIN_LED, 0) != 0) { perror("rxhw led"); return 1; }
@@ -754,6 +815,8 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "range") && argc >= 4) return cmd_range(bus, (float)atof(argv[2]), (float)atof(argv[3]), argc >= 5 ? (float)atof(argv[4]) : 100);
     if (!strcmp(argv[1], "hold") && argc >= 4) return cmd_hold(bus, (float)atof(argv[2]), (float)atof(argv[3]), argc >= 5 ? (float)atof(argv[4]) : 100, argc >= 6 ? atof(argv[5]) : 1200);
     if (!strcmp(argv[1], "ballmap")) return cmd_ballmap(argc >= 3 ? atoi(argv[2]) : 30, argc >= 4 ? (float)atof(argv[3]) : 350);
+    if (!strcmp(argv[1], "aim")) return cmd_aim(argc >= 3 ? atof(argv[2]) : 120, argc >= 4 ? (float)atof(argv[3]) : 300);
+    if (!strcmp(argv[1], "track")) return cmd_track(argc >= 3 ? atof(argv[2]) : 20, argc >= 4 ? (float)atof(argv[3]) : 0.04f);
     if (!strcmp(argv[1], "at-level")) return cmd_at_level(bus);
     if (!strcmp(argv[1], "jog")) return cmd_jog(bus, argc >= 3 ? argv[2] : "reflex.conf", argc >= 4 ? (float)atof(argv[3]) : 2300, argc >= 5 ? (float)atof(argv[4]) : 20);
     if (!strcmp(argv[1], "servo-off")) { if (rx_gpio_pwm_duty(PIN_SERVO, 0) != 0) { perror("servo-off"); return 1; } printf("servo limp\n"); return 0; }

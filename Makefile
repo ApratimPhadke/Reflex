@@ -57,7 +57,7 @@ else
   EXTRA   :=
 endif
 
-CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c src/core/rx_guest.c
+CORE := src/core/rx_core.c src/core/rx_shm.c src/core/rx_learner.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c src/core/rx_guest.c src/core/rx_sonar.c
 UDP  := src/ipc/rx_ipc_udp.c
 HDRS := $(wildcard src/core/*.h src/ipc/*.h src/guardian/*.h src/tools/*.h)
 
@@ -81,8 +81,8 @@ $(OUT)/rxctl: src/tools/rxctl.c $(CORE) $(HDRS) | $(OUT)
 $(OUT)/rxdash: src/tools/rxdash.c src/tools/dash_html.h $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rxdash.c $(CORE) $(LIBS) $(NETLIBS)
 
-$(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c src/core/rx_guest.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c src/core/rx_guest.c $(LIBS)
+$(OUT)/rx_simtest: src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c src/core/rx_guest.c src/core/rx_sonar.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -o $@ src/tools/rx_simtest.c src/core/rx_core.c src/core/rx_learner.c src/core/rx_guest.c src/core/rx_sonar.c $(LIBS)
 
 $(OUT)/rx_linktest: src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/tools/rx_linktest.c src/core/rx_link.c src/core/rx_conf.c src/core/rx_wire.c $(LIBS)
@@ -99,8 +99,8 @@ $(OUT)/rxfs: src/qnx/rxfs.c $(CORE) $(HDRS) | $(OUT)
 
 # beam-direct rig on the Pi itself (GPIO/PWM/I2C, no microcontroller): bring-up and sensor checks
 HW := src/hw/rx_rpi.c
-$(OUT)/rxhw: src/hw/rxhw.c $(HW) src/hw/rx_rpi.h src/core/rx_conf.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) -Isrc/hw -o $@ src/hw/rxhw.c $(HW) src/core/rx_conf.c src/core/rx_wire.c -lm
+$(OUT)/rxhw: src/hw/rxhw.c $(HW) src/hw/rx_rpi.h src/core/rx_conf.c src/core/rx_sonar.c src/core/rx_core.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -Isrc/hw -o $@ src/hw/rxhw.c $(HW) src/core/rx_conf.c src/core/rx_wire.c src/core/rx_sonar.c src/core/rx_core.c -lm
 
 $(OUT)/rxham: src/qnx/rxham.c | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxham.c -Wl,-Bstatic -lham -Wl,-Bdynamic   # libham.so is not on the Pi 4 quick-start image
