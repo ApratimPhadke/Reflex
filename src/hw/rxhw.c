@@ -204,6 +204,167 @@ static int cmd_mpu(int bus, int addr)
     return 0;
 }
 
+/* ------------------------------------------------------------------ servo range
+ * Moves the servo, so only on request. PWM with the settings of QNX's servo sample (50 Hz, range 1024: one
+ * count = 19.53 us, about 2 degrees of servo). Every wait polls the INA219 every 20 ms and cuts the pulses
+ * (servo limp) at once above SERVO_TRIP_A. Steps of one count from the centre, out to where the beam stops
+ * tilting further, the holding current jumps, the tilt passes 14 degrees, or the pulse reaches 1000/2000 us. */
+#define SERVO_TRIP_A 1.5f
+#define PWM_RANGE 1024
+static int s_fd = -1, s_tripped;
+static float s_peak_a, s_min_v = 99;
+static float s_lo_us = 1000, s_hi_us = 2000;                  /* pulse bounds of the sweep */
+static unsigned us2c(float us) { return (unsigned)(us * PWM_RANGE / 20000.0f + 0.5f); }
+static float c2us(unsigned c) { return c * 20000.0f / PWM_RANGE; }
+static void servo_limp(void) { rx_gpio_pwm_duty(PIN_SERVO, 0); }
+static int wait_watch(int ms, float *avg_a)                      /* 0 = ok, -1 = tripped */
+{
+    double t0 = now_s(), sum = 0; int n = 0;
+    do {
+        float a = 0, v = 0;
+        if (rx_ina_read(s_fd, A_INA, &v, NULL, &a, NULL) != 0) { servo_limp(); s_tripped = 1; printf("TRIP: INA219 read failed\n"); return -1; }
+        a = fabsf(a); sum += a; n++;
+        if (v < s_min_v) s_min_v = v;
+        if (a > s_peak_a) s_peak_a = a;
+        if (a > SERVO_TRIP_A) { servo_limp(); s_tripped = 1; printf("TRIP: %.2f A > %.1f A, servo limp\n", a, SERVO_TRIP_A); fflush(stdout); return -1; }
+        usleep(20000);
+    } while ((now_s() - t0) * 1000 < ms);
+    if (avg_a) *avg_a = (float)(sum / n);
+    return 0;
+}
+static int gravity(float g[3])                                   /* mean unit gravity vector over ~200 ms */
+{
+    double s3[3] = { 0, 0, 0 }; int n = 0;
+    for (int i = 0; i < 10; i++) {
+        rx_mpu_t m;
+        if (rx_mpu_read(s_fd, A_MPU1, &m) == 0) { s3[0] += m.ax; s3[1] += m.ay; s3[2] += m.az; n++; }
+        if (wait_watch(20, NULL) != 0) return -1;
+    }
+    if (!n) return -1;
+    double l = sqrt(s3[0] * s3[0] + s3[1] * s3[1] + s3[2] * s3[2]);
+    for (int k = 0; k < 3; k++) g[k] = (float)(s3[k] / l);
+    return 0;
+}
+static float angle_deg(const float a[3], const float b[3])
+{
+    float d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    return rad2deg(acosf(d > 1 ? 1 : d < -1 ? -1 : d));
+}
+typedef struct { unsigned c; float g[3], amp, dang; } step_t;
+
+static int sweep(int dir, unsigned c0, const float g0[3], step_t *st, int max, unsigned *limit, const char **why)
+{
+    int n = 0, flat = 0; float prev = 0, hold0 = -1;
+    unsigned c = c0, lo = us2c(s_lo_us), hi = us2c(s_hi_us);
+    *why = "pulse bound";
+    for (;;) {
+        unsigned nc = c + (unsigned)dir;
+        if (nc < lo || nc > hi) { *limit = c; break; }
+        c = nc;
+        if (rx_gpio_pwm_duty(PIN_SERVO, c) != 0) { servo_limp(); printf("PWM duty failed: %s\n", strerror(errno)); return -1; }
+        float amp;
+        if (wait_watch(350, &amp) != 0) return -1;
+        float g[3]; if (gravity(g) != 0) return -1;
+        float ang = angle_deg(g, g0);
+        step_t *s = &st[n]; s->c = c; memcpy(s->g, g, sizeof g); s->amp = amp; s->dang = ang - prev;
+        printf("  %4.0f us  tilt from centre %5.2f deg (step %+.2f)  hold %4.0f mA  peak so far %4.0f mA  min supply %.2f V\n",
+               c2us(c), ang, s->dang, amp * 1000, s_peak_a * 1000, s_min_v); fflush(stdout);
+        if (n == 2) hold0 = (st[0].amp + st[1].amp + st[2].amp) / 3;
+        n++;
+        /* stopped tilting: under 0.15 deg gained over the last 4 steps (about 0.5 deg expected) */
+        (void)flat;
+        if (n > 4) {
+            float gain = 0; for (int j = n - 4; j < n; j++) gain += st[j].dang;
+            if (gain < 0.15f) { *limit = st[n - 5].c; *why = "beam stopped tilting further"; break; }
+        }
+        if (hold0 >= 0 && amp > 0.35f && amp > 4 * hold0) { *limit = st[n - 2].c; *why = "holding current jumped (binding?)"; break; }
+        if (ang > 14.0f) { *limit = st[n - 2].c; *why = "tilt past 14 deg"; break; }
+        if (n >= max) { *limit = c; *why = "step budget"; break; }
+        prev = ang;
+    }
+    return n;
+}
+static int move_slow(unsigned from, unsigned to)                 /* one count per 150 ms */
+{
+    unsigned c = from;
+    while (c != to) {
+        c = c < to ? c + 1 : c - 1;
+        if (rx_gpio_pwm_duty(PIN_SERVO, c) != 0) return -1;
+        if (wait_watch(150, NULL) != 0) return -1;
+    }
+    return 0;
+}
+
+static int cmd_servo_cal(int bus)
+{
+    s_fd = rx_i2c_open(bus);
+    if (s_fd < 0 || rx_gpio_open() != 0) { perror("rxhw servo-cal"); return 1; }
+    uint8_t who; if (rx_mpu_init(s_fd, A_MPU1, &who) != 0) { perror("MPU"); return 1; }
+    float g_rest[3]; if (gravity(g_rest) != 0) { printf("no MPU data\n"); return 1; }
+    printf("servo limp: g = (%+.3f %+.3f %+.3f)\n", g_rest[0], g_rest[1], g_rest[2]);
+    unsigned c0 = us2c(1500);
+    if (rx_gpio_pwm_setup(PIN_SERVO, 50, PWM_RANGE) != 0 || rx_gpio_pwm_duty(PIN_SERVO, c0) != 0) {
+        servo_limp(); printf("PWM setup failed: %s\n", strerror(errno)); return 1;
+    }
+    printf("PWM on: 50 Hz, range %d, centre %u counts = %.0f us (the servo goes there at its own speed)\n", PWM_RANGE, c0, c2us(c0)); fflush(stdout);
+    float amp; if (wait_watch(1500, &amp) != 0) { servo_limp(); return 1; }
+    float g0[3]; if (gravity(g0) != 0) { servo_limp(); return 1; }
+    printf("centre: g = (%+.3f %+.3f %+.3f), %.0f mA, moved %.1f deg from the limp rest\n", g0[0], g0[1], g0[2], amp * 1000, angle_deg(g0, g_rest));
+    static step_t up[120], dn[120]; unsigned lim_up = c0, lim_dn = c0; const char *wu = "", *wd = "";
+    printf("sweep up\n");
+    int nu = sweep(+1, c0, g0, up, 120, &lim_up, &wu);
+    if (nu < 0) { servo_limp(); return 1; }
+    printf("  -> upper limit %.0f us (%s)\n", c2us(lim_up), wu);
+    if (move_slow(up[nu - 1].c, c0) != 0) { servo_limp(); return 1; }
+    printf("sweep down\n");
+    int nd = sweep(-1, c0, g0, dn, 120, &lim_dn, &wd);
+    if (nd < 0) { servo_limp(); return 1; }
+    printf("  -> lower limit %.0f us (%s)\n", c2us(lim_dn), wd);
+    if (move_slow(dn[nd - 1].c, c0) != 0) { servo_limp(); return 1; }
+
+    /* hinge axis h: gravity turns about it. Beam axis b = h x z (MPU taped flat on the beam), tilt = asin(g.b) */
+    const float *ga = up[nu > 1 ? nu - 1 : 0].g, *gb = dn[nd > 1 ? nd - 1 : 0].g;
+    float h[3] = { ga[1] * gb[2] - ga[2] * gb[1], ga[2] * gb[0] - ga[0] * gb[2], ga[0] * gb[1] - ga[1] * gb[0] };
+    float hl = sqrtf(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
+    if (hl < 1e-3f) { printf("the beam did not tilt: cannot find its axis\n"); servo_limp(); return 1; }
+    for (int k = 0; k < 3; k++) h[k] /= hl;
+    float b[3] = { h[1], -h[0], 0 };                              /* h x (0,0,1) */
+    float bl = sqrtf(b[0] * b[0] + b[1] * b[1]); b[0] /= bl; b[1] /= bl;
+    float tu = rad2deg(asinf(up[nu > 1 ? nu - 1 : 0].g[0] * b[0] + up[nu > 1 ? nu - 1 : 0].g[1] * b[1]));
+    if (tu < 0) { b[0] = -b[0]; b[1] = -b[1]; }                  /* positive tilt = larger pulse */
+    printf("\nhinge axis (sensor frame) (%+.3f %+.3f %+.3f); beam axis (%+.3f %+.3f 0)\n", h[0], h[1], h[2], b[0], b[1]);
+    printf("pulse_us,tilt_deg,hold_mA\n");
+    float tmin = 1e9, tmax = -1e9, lvl = NAN; float pt = NAN; unsigned pc = 0;
+    /* walk all samples in pulse order: down sweep reversed, centre, up sweep */
+    for (int pass = 0; pass < 2; pass++) {
+        int cnt = pass ? nu : nd;
+        for (int j = 0; j < cnt; j++) {
+            const step_t *s = pass ? &up[j] : &dn[cnt - 1 - j];
+            float t = rad2deg(asinf(s->g[0] * b[0] + s->g[1] * b[1] + 0 * s->g[2]));
+            if (s->c >= lim_dn && s->c <= lim_up) { tmin = fminf(tmin, t); tmax = fmaxf(tmax, t); }
+            printf("%.0f,%.2f,%.0f\n", c2us(s->c), t, s->amp * 1000);
+            if (!isnan(pt) && ((pt <= 0 && t >= 0) || (pt >= 0 && t <= 0)) && t != pt) lvl = c2us(pc) + (c2us(s->c) - c2us(pc)) * (0 - pt) / (t - pt);
+            pt = t; pc = s->c;
+            if (pass == 0 && j == cnt - 1) {                      /* the centre sits between the sweeps */
+                float tc = rad2deg(asinf(g0[0] * b[0] + g0[1] * b[1]));
+                printf("%.0f,%.2f,centre\n", c2us(c0), tc);
+                if ((pt <= 0 && tc >= 0) || (pt >= 0 && tc <= 0)) if (tc != pt) lvl = c2us(pc) + (c2us(c0) - c2us(pc)) * (0 - pt) / (tc - pt);
+                pt = tc; pc = c0;
+            }
+        }
+    }
+    printf("\nRESULT limits %.0f..%.0f us; beam tilt over that range %+.1f..%+.1f deg (MPU taken as flat on the beam); "
+           "level (tilt 0) at %.0f us; peak current %.0f mA, min supply %.2f V%s\n", c2us(lim_dn), c2us(lim_up), tmin, tmax, lvl, s_peak_a * 1000, s_min_v,
+           s_tripped ? " TRIPPED" : "");
+    if (!isnan(lvl)) {
+        if (move_slow(c0, us2c(lvl)) == 0) { wait_watch(1000, NULL); float g[3]; gravity(g);
+            printf("at %.0f us: tilt %.2f deg\n", c2us(us2c(lvl)), rad2deg(asinf(g[0] * b[0] + g[1] * b[1]))); }
+    }
+    servo_limp();
+    printf("servo limp\n");
+    return 0;
+}
+
 static int cmd_led(int n)
 {
     if (rx_gpio_output(PIN_LED, 0) != 0) { perror("rxhw led"); return 1; }
@@ -241,6 +402,11 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "scan")) return cmd_scan(bus);
     if (!strcmp(argv[1], "watch") && argc >= 3) return cmd_watch(bus, atof(argv[2]));
     if (!strcmp(argv[1], "mpu") && argc >= 3) return cmd_mpu(bus, (int)strtol(argv[2], NULL, 0));
+    if (!strcmp(argv[1], "servo-cal")) {                       /* servo-cal [lo_us hi_us], never wider than 500..2500 */
+        if (argc >= 4) { s_lo_us = fmaxf(500, (float)atof(argv[2])); s_hi_us = fminf(2500, (float)atof(argv[3])); }
+        return cmd_servo_cal(bus);
+    }
+    if (!strcmp(argv[1], "servo-off")) { if (rx_gpio_pwm_duty(PIN_SERVO, 0) != 0) { perror("servo-off"); return 1; } printf("servo limp\n"); return 0; }
     if (!strcmp(argv[1], "led")) return cmd_led(argc >= 3 ? atoi(argv[2]) : 5);
     if (!strcmp(argv[1], "sonar") && argc >= 3) return cmd_sonar(atoi(argv[2]), argc >= 4 ? atoi(argv[3]) : 50);
     fprintf(stderr, "unknown command\n");

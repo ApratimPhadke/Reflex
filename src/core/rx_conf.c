@@ -46,6 +46,10 @@ int rx_conf_check(const rx_conf_t *c, char *err, size_t errcap)
     if (c->center_mm <= c->range_min_mm || c->center_mm >= c->range_max_mm)
         ERR("center_mm %d is not inside the range window %d..%d", c->center_mm, c->range_min_mm, c->range_max_mm);
     if (!(c->half_len_m >= 0.10f && c->half_len_m <= 0.20f)) ERR("half_len_m %g outside 0.10..0.20", (double)c->half_len_m);
+    if ((c->servo_min_us != 0) != (c->servo_max_us != 0)) ERR("servo_min_us and servo_max_us come together");
+    if (c->servo_min_us && !(c->servo_min_us >= 500 && c->servo_min_us < c->level_us && c->level_us < c->servo_max_us && c->servo_max_us <= 2500))
+        ERR("servo limits %d..%d us must satisfy 500 <= servo_min_us < level_us (%d) < servo_max_us <= 2500",
+            c->servo_min_us, c->servo_max_us, c->level_us);
     return 0;
 }
 
@@ -76,7 +80,9 @@ static const char *const KEYS[] = { "level_us", "us_per_mrad", "servo_dir", "cen
                                     "range_min_mm", "range_max_mm", "half_len_m", "calibrated_at", "board",
                                     /* optional: pilot transport */
                                     "pilot_transport", "pilot_bind", "pilot_peer", "guest_timeout_s", "guest_boot_s",
-                                    "guest_restart_cmd", "guest_ssh", "pilot_max_age_ms" };
+                                    "guest_restart_cmd", "guest_ssh", "pilot_max_age_ms",
+                                    /* optional: measured servo limits (beam-direct) */
+                                    "servo_min_us", "servo_max_us" };
 
 static int set_transport(rx_conf_t *c, unsigned i, const char *k, const char *v, char *err, size_t errcap)
 {
@@ -112,6 +118,12 @@ static int set_key(rx_conf_t *c, const char *k, const char *v, unsigned *seen, c
     if (i == sizeof KEYS / sizeof KEYS[0]) ERR("unknown key '%s'", k);
     if (*seen & (1u << i)) ERR("key '%s' given twice", k);
     *seen |= 1u << i;
+    if (i == 18 || i == 19) {
+        char *e; long n = strtol(v, &e, 10);
+        if (e == v || *e || n < 0 || n > 100000) ERR("%s: '%s' is not an integer", k, v);
+        if (i == 18) c->servo_min_us = (int)n; else c->servo_max_us = (int)n;
+        return 0;
+    }
     if (i >= N_CAL_KEYS) return set_transport(c, i, k, v, err, errcap);
     if (i == 8 || i == 9) {                                  /* strings */
         char *dst = i == 8 ? c->calibrated_at : c->board;
@@ -208,6 +220,11 @@ int rx_conf_format(const rx_conf_t *c, char *buf, size_t cap)
         c->level_us, (double)c->us_per_mrad, c->servo_dir, c->center_mm, c->sensor_dir,
         c->range_min_mm, c->range_max_mm, (double)c->half_len_m, c->calibrated_at, c->board);
     if (k < 0 || (size_t)k >= cap) return -1;
+    if (c->servo_min_us) {
+        int t = snprintf(buf + k, cap - (size_t)k, "servo_min_us  = %d\nservo_max_us  = %d\n", c->servo_min_us, c->servo_max_us);
+        if (t < 0 || (size_t)(k + t) >= cap) return -1;
+        k += t;
+    }
     if (c->has_transport || c->pilot_udp) {
         int t = snprintf(buf + k, cap - (size_t)k,
             "# where the untrusted pilot runs (docs/HYPERVISOR.md)\n"

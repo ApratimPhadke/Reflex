@@ -25,6 +25,10 @@
  *                     restarts are at least max(15 s, guest_boot_s) apart, at most 5 per 10 min
  *   guest_restart_cmd udp: shell command the guardian runs to restart the guest (default: none, log only)
  *   guest_ssh         user@host that `rxctl guest ...` reaches the guest with, or "local" (tests)
+ *
+ * Optional keys: measured servo limits of a rig driven straight from the host (beam-direct, rxhw servo-cal).
+ *   servo_min_us, servo_max_us   no pulse outside these is ever sent; 500..2500, min < level_us < max.
+ *                                Both or neither; without them the limits are RX_PULSE_MIN..RX_PULSE_MAX.
  *   pilot_max_age_ms  udp: a proposal computed from a state older than this is stale (fallback flies). Rounded to
  *                     whole control periods. 10..200; default 0 = the kernel's own (rx_cfg_default/hardware).
  *                     Only how old an AI command may be; every command still meets the same envelope, range and
@@ -54,6 +58,7 @@ typedef struct {
     char  guest_restart_cmd[200];
     char  guest_ssh[64];
     float pilot_max_age_ms;       /* 0 = kernel default */
+    int   servo_min_us, servo_max_us;   /* 0 = not given: RX_PULSE_MIN..RX_PULSE_MAX */
     unsigned has_transport;       /* a transport key was given: rx_conf_format writes them back */
 } rx_conf_t;
 

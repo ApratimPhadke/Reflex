@@ -198,6 +198,26 @@ static void conf_cases(void)
 }
 
 /* ---- reflex.conf: the optional pilot transport keys */
+/* ---- reflex.conf: measured servo limits (beam-direct) */
+static void limit_cases(void)
+{
+    rx_conf_t c, d; char err[200], buf[2048], t[2048];
+    CHECK(rx_conf_parse(&c, GOOD, err, sizeof err) == 0 && c.servo_min_us == 0 && c.servo_max_us == 0, "limits default to 0: %s", err);
+    rx_conf_format(&c, buf, sizeof buf);
+    CHECK(!strstr(buf, "servo_min_us"), "a file without limits grew them on format");
+    snprintf(t, sizeof t, "%sservo_min_us = 600\nservo_max_us = 2150\n", GOOD);
+    CHECK(rx_conf_parse(&c, t, err, sizeof err) == 0 && c.servo_min_us == 600 && c.servo_max_us == 2150, "limits: %s", err);
+    CHECK(rx_conf_format(&c, buf, sizeof buf) > 0 && rx_conf_parse(&d, buf, err, sizeof err) == 0 &&
+          d.servo_min_us == 600 && d.servo_max_us == 2150, "limits round trip: %s", err);
+    const char *bad[] = { "servo_min_us = 600\n", "servo_max_us = 2150\n", "servo_min_us = 400\nservo_max_us = 2150\n",
+                          "servo_min_us = 600\nservo_max_us = 2600\n", "servo_min_us = 1600\nservo_max_us = 2150\n",
+                          "servo_min_us = 600\nservo_max_us = 1500\n", "servo_min_us = x\nservo_max_us = 2150\n" };
+    for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        snprintf(t, sizeof t, "%s%s", GOOD, bad[i]);
+        CHECK(rx_conf_parse(&d, t, err, sizeof err) != 0, "bad limits accepted: %s", bad[i]);
+    }
+}
+
 static void transport_cases(void)
 {
     rx_conf_t c, d; char err[200], buf[2048];
@@ -342,7 +362,7 @@ int main(void)
     printf("== I/O node link parser (protocol v%d) ==\n", RX_LINK_PROTO);
     line_cases(); split_invariance(); overflow(); burst(); fuzz(); commands();
     printf("== reflex.conf ==\n");
-    conf_cases(); transport_cases();
+    conf_cases(); transport_cases(); limit_cases();
     printf("== pilot UDP datagram filter ==\n");
     wire_cases();
     printf("%s\n", fails ? "LINKTEST FAILED" : "LINKTEST PASSED");
