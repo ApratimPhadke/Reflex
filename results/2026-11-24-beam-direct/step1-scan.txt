@@ -1,0 +1,23 @@
+date: 2026-11-25T00:00 IST
+commit: 02f7c60ccb97b370f8063743445460adeac058f9
+laptop: Linux APRATIM 7.0.0-38-generic #38~24.04.4-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 14 16:37:11 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+pi: QNX qnxpi 8.0.0 2026/06/05-16:21:14EDT RaspberryPi4B aarch64le
+command: ssh qnxpi 'cd reflex && ./rxhw scan'
+
+rxhw scan, build 02f7c60 (servo is not driven)
+PASS  GPIO manager           /dev/gpio/msg open
+PASS  I2C bus                /dev/i2c1 open
+      i2c1 answers: 0x40 0x68
+PASS  I2C 0x40               INA219 acknowledges
+PASS  I2C 0x68               MPU6050 #1 (beam) acknowledges
+SKIP  I2C 0x69               MPU6050 #2 (spare) not fitted (check with --mpu2)
+PASS  MPU6050 #1 tilt        who=0x70 |g|=1.078  tilt_x=-8.1 deg tilt_y=-7.3 deg  gyro=(+0.3 +2.1 +2.1) deg/s  31.2 C
+PASS  INA219 config          0x399f (power-on default 0x399f)
+PASS  INA219 servo supply    5.020 V
+PASS  INA219 current         5 mA (shunt 0.45 mV; servo not driven, expect near 0)
+      GPIO18 (servo) function code 4: left alone
+PASS  button GPIO17          level 1 (released, pull-up)
+      LED GPIO22 blinked 3 times (confirm by eye)
+PASS  HC-SR04 distance       median 588 mm (min 549, max 597), 15/15 echoes, echo idle level 0
+
+ALL PASS: 0 check(s) failed
