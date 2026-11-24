@@ -1,0 +1,46 @@
+date: 2026-11-25 01:10 IST; link re-taped by the user with the servo held at 1500 us, beam horizontal by eye there
+commit: cfc78309935b5e4bc5ecc8bc21dbed193af62170
+command: ssh qnxpi 'cd reflex && ./rxhw range 1500 4.80 100'   (tilt from level = MPU - 4.80, the at-level reference)
+
+PWM on at 1500 us: tilt from level +1.60 deg (limp +1.59)
+down
+  1498.0 us  tilt from level  +1.69 deg    10 mA  4.99 V
+  1456.0 us  tilt from level  +1.60 deg     5 mA  4.98 V
+  1414.0 us  tilt from level  +2.17 deg     8 mA  4.97 V
+  1372.0 us  tilt from level  +1.92 deg    63 mA  4.94 V
+  1330.0 us  tilt from level  +2.53 deg    32 mA  4.94 V
+  1288.0 us  tilt from level  +2.86 deg    32 mA  4.96 V
+  1246.0 us  tilt from level  +3.51 deg    34 mA  4.94 V
+  1204.0 us  tilt from level  +3.44 deg    31 mA  4.96 V
+  1162.0 us  tilt from level  +3.46 deg    20 mA  5.03 V
+  1120.0 us  tilt from level  +3.95 deg    35 mA  4.96 V
+  1078.0 us  tilt from level  +3.65 deg    35 mA  4.98 V
+  1036.0 us  tilt from level  +4.32 deg    35 mA  4.94 V
+  -> low end 1034 us (beam stopped moving)
+back up
+  1036.0 us  tilt from level  +3.72 deg   125 mA  4.92 V
+  1078.0 us  tilt from level  +4.12 deg    20 mA  4.94 V
+  1120.0 us  tilt from level  +4.27 deg    37 mA  4.95 V
+  1162.0 us  tilt from level  +3.72 deg    32 mA  4.95 V
+  1204.0 us  tilt from level  +3.60 deg    35 mA  4.94 V
+  1246.0 us  tilt from level  +3.42 deg    36 mA  4.94 V
+  1288.0 us  tilt from level  +3.40 deg     5 mA  4.99 V
+  1330.0 us  tilt from level  +2.49 deg     5 mA  4.96 V
+  1372.0 us  tilt from level  +2.49 deg    37 mA  4.96 V
+  1414.0 us  tilt from level  +2.07 deg    39 mA  4.93 V
+  1456.0 us  tilt from level  +1.90 deg    35 mA  4.95 V
+  1498.0 us  tilt from level  +1.49 deg     9 mA  4.97 V
+  1502.0 us  tilt from level  +1.61 deg    38 mA  4.94 V
+  1544.0 us  tilt from level  +1.05 deg    38 mA  4.96 V
+  1586.0 us  tilt from level  +0.87 deg     9 mA  4.98 V
+  1628.0 us  tilt from level  +0.81 deg    37 mA  4.95 V
+  1670.0 us  tilt from level  +0.61 deg    30 mA  4.93 V
+  -> high end 1710 us (beam stopped moving)
+back to 1500 us
+  1708.0 us  tilt from level  -1.49 deg   163 mA  4.83 V
+  1666.0 us  tilt from level  +0.64 deg     9 mA  4.98 V
+  1624.0 us  tilt from level  +0.41 deg    35 mA  4.96 V
+  1582.0 us  tilt from level  +0.25 deg   246 mA  4.66 V
+  1540.0 us  tilt from level  +1.48 deg    32 mA  4.95 V
+at 1500 us again: tilt from level +1.52 deg
+RESULT low end 1034 us (beam stopped moving), high end 1710 us (beam stopped moving); peak 1272 mA, min supply 2.89 V; rows in range.csv
