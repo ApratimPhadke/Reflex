@@ -1,0 +1,198 @@
+date: 2026-11-25 IST
+commit: 998ca2a8bb1ef8b916ba79a3a118a858ad26a381 (sweep ran on the build just before this commit; same sweep code apart from the stall test and bounds noted below)
+command: ssh qnxpi 'cd reflex && ./rxhw servo-cal 500 2500'   (stall test: < 0.15 deg over 4 steps)
+
+servo limp: g = (-0.144 -0.122 +0.982)
+PWM on: 50 Hz, range 1024, centre 77 counts = 1504 us (the servo goes there at its own speed)
+centre: g = (-0.142 -0.123 +0.982), 9 mA, moved 0.1 deg from the limp rest
+sweep up
+  1523 us  tilt from centre  0.07 deg (step +0.07)  hold  114 mA  peak so far 1341 mA  min supply 2.93 V
+  1543 us  tilt from centre  0.17 deg (step +0.09)  hold  278 mA  peak so far 1415 mA  min supply 2.82 V
+  1563 us  tilt from centre  0.32 deg (step +0.15)  hold  183 mA  peak so far 1415 mA  min supply 2.82 V
+  1582 us  tilt from centre  0.49 deg (step +0.17)  hold   24 mA  peak so far 1415 mA  min supply 2.82 V
+  1602 us  tilt from centre  0.63 deg (step +0.14)  hold  125 mA  peak so far 1415 mA  min supply 2.82 V
+  1621 us  tilt from centre  0.77 deg (step +0.14)  hold   30 mA  peak so far 1415 mA  min supply 2.82 V
+  1641 us  tilt from centre  0.94 deg (step +0.17)  hold  368 mA  peak so far 1415 mA  min supply 2.80 V
+  1660 us  tilt from centre  0.94 deg (step +0.00)  hold   25 mA  peak so far 1415 mA  min supply 2.80 V
+  1680 us  tilt from centre  1.07 deg (step +0.13)  hold  190 mA  peak so far 1415 mA  min supply 2.80 V
+  1699 us  tilt from centre  1.24 deg (step +0.17)  hold  200 mA  peak so far 1415 mA  min supply 2.80 V
+  1719 us  tilt from centre  1.34 deg (step +0.10)  hold  115 mA  peak so far 1415 mA  min supply 2.80 V
+  1738 us  tilt from centre  1.39 deg (step +0.04)  hold   40 mA  peak so far 1415 mA  min supply 2.80 V
+  1758 us  tilt from centre  1.55 deg (step +0.16)  hold   43 mA  peak so far 1415 mA  min supply 2.80 V
+  1777 us  tilt from centre  1.66 deg (step +0.12)  hold  109 mA  peak so far 1415 mA  min supply 2.80 V
+  1797 us  tilt from centre  1.74 deg (step +0.08)  hold   44 mA  peak so far 1415 mA  min supply 2.80 V
+  1816 us  tilt from centre  1.90 deg (step +0.16)  hold  202 mA  peak so far 1415 mA  min supply 2.80 V
+  1836 us  tilt from centre  2.07 deg (step +0.17)  hold   25 mA  peak so far 1415 mA  min supply 2.80 V
+  1855 us  tilt from centre  2.15 deg (step +0.07)  hold  319 mA  peak so far 1415 mA  min supply 2.80 V
+  1875 us  tilt from centre  2.19 deg (step +0.04)  hold  116 mA  peak so far 1415 mA  min supply 2.80 V
+  1895 us  tilt from centre  2.38 deg (step +0.19)  hold  405 mA  peak so far 1427 mA  min supply 2.80 V
+  1914 us  tilt from centre  2.50 deg (step +0.12)  hold   83 mA  peak so far 1427 mA  min supply 2.80 V
+  1934 us  tilt from centre  2.51 deg (step +0.00)  hold  114 mA  peak so far 1427 mA  min supply 2.80 V
+  1953 us  tilt from centre  2.60 deg (step +0.10)  hold   45 mA  peak so far 1427 mA  min supply 2.80 V
+  1973 us  tilt from centre  2.75 deg (step +0.15)  hold   96 mA  peak so far 1427 mA  min supply 2.80 V
+  1992 us  tilt from centre  2.80 deg (step +0.05)  hold   97 mA  peak so far 1427 mA  min supply 2.80 V
+  2012 us  tilt from centre  2.95 deg (step +0.15)  hold   97 mA  peak so far 1427 mA  min supply 2.80 V
+  2031 us  tilt from centre  3.00 deg (step +0.05)  hold  379 mA  peak so far 1448 mA  min supply 2.80 V
+  2051 us  tilt from centre  3.03 deg (step +0.03)  hold  111 mA  peak so far 1448 mA  min supply 2.80 V
+  2070 us  tilt from centre  3.16 deg (step +0.13)  hold  170 mA  peak so far 1448 mA  min supply 2.80 V
+  2090 us  tilt from centre  3.21 deg (step +0.05)  hold   37 mA  peak so far 1448 mA  min supply 2.80 V
+  2109 us  tilt from centre  3.33 deg (step +0.12)  hold  401 mA  peak so far 1453 mA  min supply 2.80 V
+  2129 us  tilt from centre  3.32 deg (step -0.01)  hold  287 mA  peak so far 1453 mA  min supply 2.80 V
+  2148 us  tilt from centre  3.42 deg (step +0.10)  hold   40 mA  peak so far 1453 mA  min supply 2.80 V
+  2168 us  tilt from centre  3.52 deg (step +0.10)  hold  191 mA  peak so far 1453 mA  min supply 2.80 V
+  2188 us  tilt from centre  3.59 deg (step +0.07)  hold  116 mA  peak so far 1453 mA  min supply 2.80 V
+  2207 us  tilt from centre  3.66 deg (step +0.08)  hold   55 mA  peak so far 1453 mA  min supply 2.80 V
+  2227 us  tilt from centre  3.68 deg (step +0.01)  hold  120 mA  peak so far 1453 mA  min supply 2.80 V
+  2246 us  tilt from centre  3.69 deg (step +0.01)  hold  112 mA  peak so far 1453 mA  min supply 2.80 V
+  2266 us  tilt from centre  3.72 deg (step +0.03)  hold  104 mA  peak so far 1453 mA  min supply 2.80 V
+  -> upper limit 2188 us (beam stopped tilting further)
+sweep down
+  1484 us  tilt from centre  0.30 deg (step +0.30)  hold   19 mA  peak so far 1453 mA  min supply 2.80 V
+  1465 us  tilt from centre  0.33 deg (step +0.04)  hold   34 mA  peak so far 1453 mA  min supply 2.80 V
+  1445 us  tilt from centre  0.56 deg (step +0.23)  hold   25 mA  peak so far 1453 mA  min supply 2.80 V
+  1426 us  tilt from centre  0.66 deg (step +0.10)  hold   20 mA  peak so far 1453 mA  min supply 2.80 V
+  1406 us  tilt from centre  0.85 deg (step +0.19)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+  1387 us  tilt from centre  0.91 deg (step +0.07)  hold   19 mA  peak so far 1453 mA  min supply 2.80 V
+  1367 us  tilt from centre  1.08 deg (step +0.17)  hold   41 mA  peak so far 1453 mA  min supply 2.80 V
+  1348 us  tilt from centre  1.14 deg (step +0.06)  hold   20 mA  peak so far 1453 mA  min supply 2.80 V
+  1328 us  tilt from centre  1.38 deg (step +0.24)  hold   24 mA  peak so far 1453 mA  min supply 2.80 V
+  1309 us  tilt from centre  1.50 deg (step +0.12)  hold  106 mA  peak so far 1453 mA  min supply 2.80 V
+  1289 us  tilt from centre  1.63 deg (step +0.13)  hold   19 mA  peak so far 1453 mA  min supply 2.80 V
+  1270 us  tilt from centre  1.81 deg (step +0.17)  hold   23 mA  peak so far 1453 mA  min supply 2.80 V
+  1250 us  tilt from centre  1.82 deg (step +0.02)  hold   34 mA  peak so far 1453 mA  min supply 2.80 V
+  1230 us  tilt from centre  1.96 deg (step +0.14)  hold   24 mA  peak so far 1453 mA  min supply 2.80 V
+  1211 us  tilt from centre  2.11 deg (step +0.15)  hold   30 mA  peak so far 1453 mA  min supply 2.80 V
+  1191 us  tilt from centre  2.32 deg (step +0.21)  hold   24 mA  peak so far 1453 mA  min supply 2.80 V
+  1172 us  tilt from centre  2.38 deg (step +0.06)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+  1152 us  tilt from centre  2.54 deg (step +0.16)  hold  100 mA  peak so far 1453 mA  min supply 2.80 V
+  1133 us  tilt from centre  2.69 deg (step +0.15)  hold   30 mA  peak so far 1453 mA  min supply 2.80 V
+  1113 us  tilt from centre  2.75 deg (step +0.07)  hold   27 mA  peak so far 1453 mA  min supply 2.80 V
+  1094 us  tilt from centre  2.87 deg (step +0.12)  hold   25 mA  peak so far 1453 mA  min supply 2.80 V
+  1074 us  tilt from centre  2.99 deg (step +0.12)  hold   24 mA  peak so far 1453 mA  min supply 2.80 V
+  1055 us  tilt from centre  3.15 deg (step +0.16)  hold   97 mA  peak so far 1453 mA  min supply 2.80 V
+  1035 us  tilt from centre  3.22 deg (step +0.07)  hold   20 mA  peak so far 1453 mA  min supply 2.80 V
+  1016 us  tilt from centre  3.41 deg (step +0.18)  hold   23 mA  peak so far 1453 mA  min supply 2.80 V
+   996 us  tilt from centre  3.42 deg (step +0.01)  hold   21 mA  peak so far 1453 mA  min supply 2.80 V
+   977 us  tilt from centre  3.52 deg (step +0.10)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+   957 us  tilt from centre  3.67 deg (step +0.15)  hold   31 mA  peak so far 1453 mA  min supply 2.80 V
+   938 us  tilt from centre  3.75 deg (step +0.08)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+   918 us  tilt from centre  3.94 deg (step +0.19)  hold   23 mA  peak so far 1453 mA  min supply 2.80 V
+   898 us  tilt from centre  4.08 deg (step +0.14)  hold  100 mA  peak so far 1453 mA  min supply 2.80 V
+   879 us  tilt from centre  4.07 deg (step -0.01)  hold   20 mA  peak so far 1453 mA  min supply 2.80 V
+   859 us  tilt from centre  4.25 deg (step +0.19)  hold   24 mA  peak so far 1453 mA  min supply 2.80 V
+   840 us  tilt from centre  4.34 deg (step +0.09)  hold   19 mA  peak so far 1453 mA  min supply 2.80 V
+   820 us  tilt from centre  4.46 deg (step +0.12)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+   801 us  tilt from centre  4.58 deg (step +0.12)  hold   24 mA  peak so far 1453 mA  min supply 2.80 V
+   781 us  tilt from centre  4.71 deg (step +0.13)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+   762 us  tilt from centre  4.80 deg (step +0.09)  hold   25 mA  peak so far 1453 mA  min supply 2.80 V
+   742 us  tilt from centre  4.81 deg (step +0.01)  hold   26 mA  peak so far 1453 mA  min supply 2.80 V
+   723 us  tilt from centre  4.90 deg (step +0.09)  hold   25 mA  peak so far 1453 mA  min supply 2.80 V
+   703 us  tilt from centre  4.93 deg (step +0.03)  hold   21 mA  peak so far 1453 mA  min supply 2.80 V
+   684 us  tilt from centre  4.96 deg (step +0.02)  hold   23 mA  peak so far 1453 mA  min supply 2.80 V
+   664 us  tilt from centre  5.12 deg (step +0.17)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+   645 us  tilt from centre  5.06 deg (step -0.06)  hold   99 mA  peak so far 1453 mA  min supply 2.80 V
+   625 us  tilt from centre  5.16 deg (step +0.10)  hold   22 mA  peak so far 1453 mA  min supply 2.80 V
+   605 us  tilt from centre  5.25 deg (step +0.09)  hold   25 mA  peak so far 1453 mA  min supply 2.80 V
+   586 us  tilt from centre  5.46 deg (step +0.21)  hold   17 mA  peak so far 1453 mA  min supply 2.80 V
+   566 us  tilt from centre  5.68 deg (step +0.22)  hold   18 mA  peak so far 1453 mA  min supply 2.80 V
+   547 us  tilt from centre  5.65 deg (step -0.03)  hold   23 mA  peak so far 1453 mA  min supply 2.80 V
+   527 us  tilt from centre  5.84 deg (step +0.19)  hold   26 mA  peak so far 1453 mA  min supply 2.80 V
+   508 us  tilt from centre  5.92 deg (step +0.08)  hold   26 mA  peak so far 1453 mA  min supply 2.80 V
+  -> lower limit 508 us (pulse bound)
+
+hinge axis (sensor frame) (-0.269 -0.950 -0.157); beam axis (-0.962 +0.272 0)
+pulse_us,tilt_deg,hold_mA
+508,11.86,26
+527,11.78,26
+547,11.59,23
+566,11.62,18
+586,11.40,17
+605,11.19,25
+625,11.10,22
+645,11.00,99
+664,11.06,22
+684,10.90,23
+703,10.87,21
+723,10.84,25
+742,10.75,26
+762,10.74,25
+781,10.65,22
+801,10.52,24
+820,10.40,22
+840,10.28,19
+859,10.20,24
+879,10.01,20
+898,10.02,100
+918,9.88,23
+938,9.69,22
+957,9.61,31
+977,9.46,22
+996,9.36,21
+1016,9.35,23
+1035,9.17,20
+1055,9.09,97
+1074,8.93,24
+1094,8.81,25
+1113,8.70,27
+1133,8.63,30
+1152,8.48,100
+1172,8.32,22
+1191,8.26,24
+1211,8.05,30
+1230,7.90,24
+1250,7.76,34
+1270,7.75,23
+1289,7.57,19
+1309,7.44,106
+1328,7.32,24
+1348,7.08,20
+1367,7.02,41
+1387,6.85,19
+1406,6.79,22
+1426,6.60,20
+1445,6.51,25
+1465,6.27,34
+1484,6.22,19
+1504,5.94,centre
+1523,5.88,114
+1543,5.78,278
+1563,5.63,183
+1582,5.46,24
+1602,5.32,125
+1621,5.18,30
+1641,5.03,368
+1660,5.00,25
+1680,4.87,190
+1699,4.73,200
+1719,4.60,115
+1738,4.56,40
+1758,4.40,43
+1777,4.28,109
+1797,4.20,44
+1816,4.04,202
+1836,3.87,25
+1855,3.80,319
+1875,3.76,116
+1895,3.56,405
+1914,3.44,83
+1934,3.44,114
+1953,3.34,45
+1973,3.19,96
+1992,3.14,97
+2012,2.99,97
+2031,2.94,379
+2051,2.91,111
+2070,2.78,170
+2090,2.74,37
+2109,2.61,401
+2129,2.62,287
+2148,2.53,40
+2168,2.43,191
+2188,2.36,116
+2207,2.28,55
+2227,2.27,120
+2246,2.25,112
+2266,2.22,104
+
+RESULT limits 508..2188 us; beam tilt over that range +2.4..+11.9 deg (MPU taken as flat on the beam); level (tilt 0) at nan us; peak current 1453 mA, min supply 2.80 V
+servo limp

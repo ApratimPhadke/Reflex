@@ -1,0 +1,120 @@
+date: 2026-11-25 IST
+commit: 998ca2a8bb1ef8b916ba79a3a118a858ad26a381 (sweep ran on the build just before this commit; same sweep code apart from the stall test and bounds noted below)
+command: ssh qnxpi 'cd reflex && ./rxhw servo-cal'   (bounds 1000..2000 us, stall test: 3 steps < 0.1 deg)
+
+servo limp: g = (-0.141 -0.123 +0.982)
+PWM on: 50 Hz, range 1024, centre 77 counts = 1504 us (the servo goes there at its own speed)
+centre: g = (-0.143 -0.123 +0.982), 9 mA, moved 0.1 deg from the limp rest
+sweep up
+  1523 us  tilt from centre  0.19 deg (step +0.19)  hold   78 mA  peak so far  942 mA
+  1543 us  tilt from centre  0.24 deg (step +0.04)  hold  184 mA  peak so far 1344 mA
+  1563 us  tilt from centre  0.35 deg (step +0.11)  hold   94 mA  peak so far 1344 mA
+  1582 us  tilt from centre  0.53 deg (step +0.18)  hold  112 mA  peak so far 1344 mA
+  1602 us  tilt from centre  0.59 deg (step +0.07)  hold   82 mA  peak so far 1344 mA
+  1621 us  tilt from centre  0.78 deg (step +0.19)  hold  362 mA  peak so far 1344 mA
+  1641 us  tilt from centre  0.95 deg (step +0.17)  hold   32 mA  peak so far 1344 mA
+  1660 us  tilt from centre  0.98 deg (step +0.03)  hold  113 mA  peak so far 1344 mA
+  1680 us  tilt from centre  1.05 deg (step +0.07)  hold  288 mA  peak so far 1402 mA
+  1699 us  tilt from centre  1.32 deg (step +0.28)  hold   38 mA  peak so far 1402 mA
+  1719 us  tilt from centre  1.43 deg (step +0.11)  hold  176 mA  peak so far 1402 mA
+  1738 us  tilt from centre  1.50 deg (step +0.07)  hold   49 mA  peak so far 1402 mA
+  1758 us  tilt from centre  1.67 deg (step +0.17)  hold  127 mA  peak so far 1402 mA
+  1777 us  tilt from centre  1.73 deg (step +0.06)  hold   35 mA  peak so far 1402 mA
+  1797 us  tilt from centre  1.90 deg (step +0.17)  hold  348 mA  peak so far 1402 mA
+  1816 us  tilt from centre  1.96 deg (step +0.07)  hold  107 mA  peak so far 1402 mA
+  1836 us  tilt from centre  2.11 deg (step +0.15)  hold   36 mA  peak so far 1402 mA
+  1855 us  tilt from centre  2.18 deg (step +0.07)  hold   47 mA  peak so far 1402 mA
+  1875 us  tilt from centre  2.38 deg (step +0.20)  hold  107 mA  peak so far 1402 mA
+  1895 us  tilt from centre  2.37 deg (step -0.01)  hold   30 mA  peak so far 1402 mA
+  1914 us  tilt from centre  2.41 deg (step +0.04)  hold  293 mA  peak so far 1409 mA
+  1934 us  tilt from centre  2.56 deg (step +0.15)  hold  312 mA  peak so far 1409 mA
+  1953 us  tilt from centre  2.74 deg (step +0.19)  hold   42 mA  peak so far 1409 mA
+  1973 us  tilt from centre  2.81 deg (step +0.06)  hold  211 mA  peak so far 1409 mA
+  1992 us  tilt from centre  2.92 deg (step +0.11)  hold   99 mA  peak so far 1409 mA
+  -> upper limit 1992 us (pulse bound)
+sweep down
+  1484 us  tilt from centre  0.13 deg (step +0.13)  hold   27 mA  peak so far 1432 mA
+  1465 us  tilt from centre  0.31 deg (step +0.19)  hold   31 mA  peak so far 1432 mA
+  1445 us  tilt from centre  0.34 deg (step +0.02)  hold   43 mA  peak so far 1432 mA
+  1426 us  tilt from centre  0.56 deg (step +0.22)  hold   26 mA  peak so far 1432 mA
+  1406 us  tilt from centre  0.75 deg (step +0.19)  hold   28 mA  peak so far 1432 mA
+  1387 us  tilt from centre  0.90 deg (step +0.15)  hold   35 mA  peak so far 1432 mA
+  1367 us  tilt from centre  0.98 deg (step +0.08)  hold   23 mA  peak so far 1432 mA
+  1348 us  tilt from centre  1.16 deg (step +0.18)  hold   25 mA  peak so far 1432 mA
+  1328 us  tilt from centre  1.19 deg (step +0.02)  hold  104 mA  peak so far 1432 mA
+  1309 us  tilt from centre  1.41 deg (step +0.22)  hold   29 mA  peak so far 1432 mA
+  1289 us  tilt from centre  1.55 deg (step +0.14)  hold   98 mA  peak so far 1432 mA
+  1270 us  tilt from centre  1.64 deg (step +0.09)  hold   23 mA  peak so far 1432 mA
+  1250 us  tilt from centre  1.80 deg (step +0.16)  hold   28 mA  peak so far 1432 mA
+  1230 us  tilt from centre  1.96 deg (step +0.16)  hold  102 mA  peak so far 1432 mA
+  1211 us  tilt from centre  2.15 deg (step +0.19)  hold   23 mA  peak so far 1432 mA
+  1191 us  tilt from centre  2.16 deg (step +0.01)  hold   28 mA  peak so far 1432 mA
+  1172 us  tilt from centre  2.26 deg (step +0.10)  hold   18 mA  peak so far 1432 mA
+  1152 us  tilt from centre  2.49 deg (step +0.23)  hold   24 mA  peak so far 1432 mA
+  1133 us  tilt from centre  2.55 deg (step +0.06)  hold   31 mA  peak so far 1432 mA
+  1113 us  tilt from centre  2.68 deg (step +0.13)  hold   20 mA  peak so far 1432 mA
+  1094 us  tilt from centre  2.75 deg (step +0.06)  hold   26 mA  peak so far 1432 mA
+  1074 us  tilt from centre  2.97 deg (step +0.22)  hold   29 mA  peak so far 1432 mA
+  1055 us  tilt from centre  3.16 deg (step +0.19)  hold   24 mA  peak so far 1432 mA
+  1035 us  tilt from centre  3.23 deg (step +0.07)  hold   21 mA  peak so far 1432 mA
+  1016 us  tilt from centre  3.38 deg (step +0.15)  hold   17 mA  peak so far 1432 mA
+   996 us  tilt from centre  3.51 deg (step +0.13)  hold   20 mA  peak so far 1432 mA
+  -> lower limit 996 us (pulse bound)
+
+hinge axis (sensor frame) (-0.244 -0.957 -0.156); beam axis (-0.969 +0.247 0)
+pulse_us,tilt_deg,hold_mA
+996,9.70,20
+1016,9.56,17
+1035,9.41,21
+1055,9.34,24
+1074,9.16,29
+1094,8.94,26
+1113,8.87,20
+1133,8.74,31
+1152,8.67,24
+1172,8.44,18
+1191,8.34,28
+1211,8.34,23
+1230,8.14,102
+1250,7.99,28
+1270,7.83,23
+1289,7.73,98
+1309,7.60,29
+1328,7.38,104
+1348,7.35,25
+1367,7.16,23
+1387,7.09,35
+1406,6.93,28
+1426,6.74,26
+1445,6.52,43
+1465,6.42,31
+1484,6.31,27
+1504,6.19,centre
+1523,6.02,78
+1543,5.96,184
+1563,5.84,94
+1582,5.66,112
+1602,5.60,82
+1621,5.44,362
+1641,5.24,32
+1660,5.21,113
+1680,5.14,288
+1699,4.86,38
+1719,4.76,176
+1738,4.69,49
+1758,4.51,127
+1777,4.46,35
+1797,4.29,348
+1816,4.22,107
+1836,4.08,36
+1855,4.00,47
+1875,3.81,107
+1895,3.82,30
+1914,3.78,293
+1934,3.63,312
+1953,3.44,42
+1973,3.38,211
+1992,3.27,99
+
+RESULT limits 996..1992 us; beam tilt over that range +3.3..+9.7 deg (MPU taken as flat on the beam); level (tilt 0) at nan us; peak current 1432 mA
+servo limp
