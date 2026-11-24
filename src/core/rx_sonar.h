@@ -29,7 +29,8 @@ typedef struct {
     uint32_t n_in, n_gated, n_spikes, n_reacq, n_ok;
 } rx_sonar_filt_t;
 
-void rx_sonar_cfg_default(rx_sonar_cfg_t *c);          /* 50..170 mm, 400 mm/s, 8 mm slack, 4 mm agree */
+void rx_sonar_cfg_default(rx_sonar_cfg_t *c);          /* 40..200 mm, 400 mm/s, 8 mm slack, 4 mm agree */
+#define RX_SONAR_LOST_TICKS 5                          /* no accepted reading for this many ticks = ball lost */
 void rx_sonar_init(rx_sonar_filt_t *f, const rx_sonar_cfg_t *c);
 /* dt_s: control period. Returns 1 and *out_mm when this tick has a clean measurement, else 0. */
 int  rx_sonar_step(rx_sonar_filt_t *f, float raw_mm, float dt_s, float *out_mm);

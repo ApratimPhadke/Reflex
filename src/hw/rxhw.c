@@ -740,15 +740,22 @@ static int cmd_track(double secs, float est_tau)
     rx_cfg_t c; rx_cfg_default(&c, 50.0f); c.est_tau = est_tau;
     rx_est_t e = { 0, 0, 0 };
     FILE *csv = fopen("track.csv", "w"); if (csv) fprintf(csv, "t_s,raw_mm,filt_mm,x_mm,v_mm_s\n");
-    double t0 = now_s(), next = t0, tp = t0, sx = 0, sx2 = 0, sv = 0, sv2 = 0, late = 0; int n = 0, ns = 0;
+    double t0 = now_s(), next = t0, tp = t0, sx = 0, sx2 = 0, sv = 0, sv2 = 0, late = 0; int n = 0, ns = 0, lost = 0, nlost = 0, tl = 0;
     while (now_s() - t0 < secs) {
         float raw = rx_sonar_measure(&so, 15, NULL), z;          /* 15 ms: anything later is not the ball */
         int ok = rx_sonar_step(&f, raw, 0.02f, &z);
-        if (ok) rx_est_update(&e, &c, z * 1e-3f); else rx_est_predict(&e, &c);
+        static int gap; gap = ok ? 0 : gap + 1;
+        if (ok) { if (gap == 0 && f.ticks_since == 0 && e.init && lost) { e.init = 0; } rx_est_update(&e, &c, z * 1e-3f); lost = 0; }
+        else if (gap < RX_SONAR_LOST_TICKS) rx_est_predict(&e, &c);
+        else { if (!lost) nlost++; lost = 1; }                 /* no extrapolation: lost, as the guardian sees it */
         n++;
-        if (e.init) { sx += e.x * 1e3; sx2 += e.x * 1e3 * e.x * 1e3; sv += e.v * 1e3; sv2 += e.v * 1e3 * e.v * 1e3; ns++; }
-        if (csv) fprintf(csv, "%.3f,%.1f,%.1f,%.2f,%.1f\n", now_s() - t0, raw, ok ? z : -1.0f, e.x * 1e3, e.v * 1e3);
-        if (now_s() - tp >= 0.5) { tp = now_s(); printf("t=%5.1f  raw %6.1f  ball %6.1f mm  v %+6.1f mm/s\n", now_s() - t0, raw, e.x * 1e3, e.v * 1e3); fflush(stdout); }
+        if (lost) tl++;
+        if (e.init && !lost) { sx += e.x * 1e3; sx2 += e.x * 1e3 * e.x * 1e3; sv += e.v * 1e3; sv2 += e.v * 1e3 * e.v * 1e3; ns++; }
+        if (csv) fprintf(csv, "%.3f,%.1f,%.1f,%.2f,%.1f\n", now_s() - t0, raw, ok ? z : -1.0f, lost ? NAN : e.x * 1e3, lost ? NAN : e.v * 1e3);
+        if (now_s() - tp >= 0.5) { tp = now_s();
+            if (lost) printf("t=%5.1f  raw %6.1f  LOST\n", now_s() - t0, raw);
+            else printf("t=%5.1f  raw %6.1f  ball %6.1f mm  v %+6.1f mm/s\n", now_s() - t0, raw, e.x * 1e3, e.v * 1e3);
+            fflush(stdout); }
         next += 0.02; double w = next - now_s();
         if (w > 0) usleep((useconds_t)(w * 1e6)); else late++;
     }
@@ -756,8 +763,8 @@ static int cmd_track(double secs, float est_tau)
     double dt = now_s() - t0, mx = sx / ns, mv = sv / ns;
     printf("\n%d ticks in %.1f s (%.1f Hz, %.0f late): accepted %u, gated %u, spikes refused %u, re-acquired %u\n",
            n, dt, n / dt, late, f.n_ok, f.n_gated, f.n_spikes, f.n_reacq);
-    printf("estimate: x mean %.1f mm sd %.2f mm; v mean %+.1f mm/s sd %.1f mm/s (est_tau %.3f s)\n",
-           mx, sqrt(fmax(0, sx2 / ns - mx * mx)), mv, sqrt(fmax(0, sv2 / ns - mv * mv)), est_tau);
+    printf("estimate: x mean %.1f mm sd %.2f mm; v mean %+.1f mm/s sd %.1f mm/s (est_tau %.3f s); lost %d times, %.0f %% of the time\n",
+           mx, sqrt(fmax(0, sx2 / (ns ? ns : 1) - mx * mx)), mv, sqrt(fmax(0, sv2 / (ns ? ns : 1) - mv * mv)), est_tau, nlost, 100.0 * tl / n);
     return 0;
 }
 

@@ -5,7 +5,7 @@
 
 void rx_sonar_cfg_default(rx_sonar_cfg_t *c)
 {
-    c->lo_mm = 50; c->hi_mm = 170;          /* step3-ballmap-2: hinge stop 58.9 mm, ball not seen past ~170 mm */
+    c->lo_mm = 40; c->hi_mm = 200;          /* step3-roll: ball from 46 mm (hinge stop) to 199 mm (far stop) */
     c->max_speed_mm_s = 400;                /* a ball on +-4 deg over 10 cm reaches ~0.3 m/s */
     c->slack_mm = 8; c->agree_mm = 4;
 }

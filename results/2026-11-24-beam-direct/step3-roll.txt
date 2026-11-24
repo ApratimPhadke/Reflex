@@ -1,0 +1,43 @@
+date: 2026-11-25 IST; the user rolled the ball hinge stop <-> far stop 3-4 times, then left it at the far stop
+commit: e2491a6 (filter gate then 50..170 mm; widened to 40..200 mm in the next commit because of this run)
+command: ssh qnxpi 'cd reflex && ./rxhw track 35 0.04'
+
+1750 ticks in 35.0 s (50.0 Hz, 47 late): accepted 342, gated 1151, spikes refused 257, re-acquired 18
+estimate: x mean 145.0 mm sd 236.52 mm; v mean +1.5 mm/s sd 928.5 mm/s (est_tau 0.040 s)
+
+raw readings per second (ball = 45..200 mm):
+ 0s ball seen  68%  median 72 mm
+ 1s ball seen  48%  median 99 mm
+ 2s ball seen  60%  median 95 mm
+ 3s ball seen   4%  median 180 mm
+ 4s ball seen   2%  median 196 mm
+ 5s ball seen  44%  median 72 mm
+ 6s ball seen  68%  median 106 mm
+ 7s ball seen  10%  median 180 mm
+ 8s ball seen  64%  median 75 mm
+ 9s ball seen  26%  median 157 mm
+10s ball seen  10%  median 167 mm
+11s ball seen  78%  median 99 mm
+12s ball seen  52%  median 161 mm
+13s ball seen   0%  -
+14s ball seen  84%  median 62 mm
+15s ball seen  72%  median 95 mm
+16s ball seen  10%  median 167 mm
+17s ball seen  66%  median 72 mm
+18s ball seen  30%  median 95 mm
+19s ball seen  26%  median 92 mm
+20s ball seen  72%  median 147 mm
+21s ball seen   0%  -
+22s ball seen  68%  median 69 mm
+23s ball seen  76%  median 109 mm
+24s ball seen   0%  -
+25s ball seen  76%  median 85 mm
+26s ball seen  36%  median 128 mm
+27s ball seen   8%  median 170 mm
+28s ball seen  94%  median 78 mm
+29s ball seen  22%  median 123 mm
+30s ball seen  24%  median 167 mm
+31s ball seen  88%  median 59 mm
+32s ball seen  12%  median 170 mm
+33s ball seen  40%  median 78 mm
+34s ball seen  80%  median 137 mm
