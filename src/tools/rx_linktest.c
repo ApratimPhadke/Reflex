@@ -173,7 +173,7 @@ static void conf_cases(void)
         { "us_per_mrad = 2.1", "us_per_mrad = 0", "us_per_mrad" }, { "us_per_mrad = 2.1", "us_per_mrad = nan", "number" },
         { "servo_dir = -1", "servo_dir = 2", "servo_dir" }, { "sensor_dir = -1", "sensor_dir = 0", "sensor_dir" },
         { "center_mm = 247", "center_mm = 600", "center_mm" }, { "range_min_mm = 30", "range_min_mm = 490", "range" },
-        { "half_len_m = 0.19", "half_len_m = 0.25", "half_len_m" }, { "half_len_m = 0.19", "half_len_m = 0.05", "half_len_m" },
+        { "half_len_m = 0.19", "half_len_m = 0.25", "half_len_m" }, { "half_len_m = 0.19", "half_len_m = 0.02", "half_len_m" },
         { "board = BLACKPILL_F401CC", "board =", "board" }, { "servo_dir = -1", "servo_dir -1", "key = value" },
         { "servo_dir = -1", "servo_dir = -1\nservo_dir = 1", "twice" }, { "servo_dir = -1", "servo_dir = -1\ncolour = red", "unknown key" },
     };
@@ -220,6 +220,11 @@ static void limit_cases(void)
 
 static void transport_cases(void)
 {
+    {   /* the beam-direct rig's 42 mm half length (lower bound 0.03 since step 4) */
+        rx_conf_t c42; char e42[200], t42[1024]; snprintf(t42, sizeof t42, "%s", GOOD);
+        char *h = strstr(t42, "half_len_m = 0.19"); if (h) memcpy(h, "half_len_m = .042", 17);
+        CHECK(rx_conf_parse(&c42, t42, e42, sizeof e42) == 0 && fabsf(c42.half_len_m - 0.042f) < 1e-6f, "half_len_m 0.042 rejected: %s", e42);
+    }
     rx_conf_t c, d; char err[200], buf[2048];
     CHECK(rx_conf_parse(&c, GOOD, err, sizeof err) == 0 && !c.pilot_udp && !c.has_transport &&
           !strcmp(c.pilot_bind, "0.0.0.0:47800") && fabsf(c.guest_timeout_s - 1.0f) < 1e-6f && fabsf(c.guest_boot_s - 15.0f) < 1e-6f &&

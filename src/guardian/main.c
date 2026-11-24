@@ -58,7 +58,7 @@ static void usage(void)
 {
     puts("reflex-guardian [options]\n"
          "  --hz N             control rate (default 1000 for sim, 50 for serial)\n"
-         "  --backend sim|serial\n"
+         "  --backend sim|serial|beam   beam = the Pi drives servo and sensors itself (beam-direct rig, QNX)\n"
          "  --plant beam|joint simulated plant (default beam); joint = a robot joint with gravity load, sim only\n"
          "  --dev PATH         serial device of the I/O node (e.g. /dev/serusb1)\n"
          "  --conf PATH        rig calibration written by rxcal (default: reflex.conf next to this binary);\n"
@@ -266,18 +266,20 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--quiet")) { /* default now, accepted for compatibility */ }
         else { usage(); return strcmp(a, "--help") ? 2 : 0; }
     }
-    int serial = !strcmp(o.backend, "serial");
-    o.hardware = serial;
+    int serial = !strcmp(o.backend, "serial"), beam = !strcmp(o.backend, "beam");
+    int hw = serial || beam;                                /* a real rig: calibration required */
+    if (!hw && strcmp(o.backend, "sim")) { fprintf(stderr, "--backend must be sim, serial or beam\n"); return 2; }
+    o.hardware = hw;
     if (!o.plant) o.plant = "beam";
     int joint = !strcmp(o.plant, "joint");
     if (!joint && strcmp(o.plant, "beam")) { fprintf(stderr, "--plant must be beam or joint\n"); return 2; }
-    if (joint && serial) { fprintf(stderr, "--plant joint is simulated only (the real rig is a ball and beam)\n"); return 2; }
+    if (joint && hw) { fprintf(stderr, "--plant joint is simulated only (the real rig is a ball and beam)\n"); return 2; }
     if (joint && o.learn) { fprintf(stderr, "--plant joint: the online learner is for the beam only; the joint flies its frozen pilot\n"); return 2; }
-    if (o.hz <= 0) o.hz = serial ? 50.0f : 1000.0f;
+    if (o.hz <= 0) o.hz = hw ? 50.0f : 1000.0f;
     if (o.hz < 10 || o.hz > 4000) { fprintf(stderr, "--hz must be 10..4000\n"); return 2; }
 
     rx_cfg_t cfg; rx_cfg_default(&cfg, o.hz);
-    if (serial) rx_cfg_hardware(&cfg);
+    if (hw) rx_cfg_hardware(&cfg);
     if (joint) rx_cfg_joint(&cfg, o.hz);
 
     /* rig calibration: the serial backend refuses to run on guessed values */
@@ -291,7 +293,7 @@ int main(int argc, char **argv)
         printf("calibration %s (%s)\n", conf.calibrated_at, conf_path);
         return 0;
     }
-    if (serial && !o.uncalibrated) {
+    if (hw && !o.uncalibrated) {
         char err[256];
         if (rx_conf_load(&conf, conf_path, err, sizeof err) != 0) {
             fprintf(stderr, "[guardian] no valid calibration: %s\n"
@@ -301,6 +303,17 @@ int main(int argc, char **argv)
         }
         /* a measured beam can only make the kernel's beam shorter, never longer */
         if (conf.half_len_m < cfg.half_len) cfg.half_len = conf.half_len_m;
+        if (beam) {
+            /* the servo's authority around level, the smaller side; never more than the kernel's own limit */
+            if (!conf.servo_min_us) { fprintf(stderr, "[guardian] --backend beam needs servo_min_us/servo_max_us in %s\n", conf_path); return 2; }
+            float up = (float)(conf.servo_max_us - conf.level_us), dn = (float)(conf.level_us - conf.servo_min_us);
+            float th = (up < dn ? up : dn) / (conf.us_per_mrad * 1000.0f);
+            if (th > cfg.theta_max) th = cfg.theta_max;
+            float reversal = 2.0f * th * 1000.0f * conf.us_per_mrad / (float)RX_BEAM_SLEW_US * cfg.dt;
+            rx_cfg_beam_direct(&cfg, th, reversal);
+            fprintf(stderr, "[guardian] beam-direct: theta_max %.1f mrad (%.2f deg) from %d..%d us around %d, t_delay %.0f ms, half_len %.0f mm\n",
+                    th * 1e3, th * 57.29578f, conf.servo_min_us, conf.servo_max_us, conf.level_us, cfg.t_delay * 1e3, cfg.half_len * 1e3);
+        }
     } else if (o.conf || access(conf_path, R_OK) == 0) {   /* sim (or --uncalibrated): only the pilot transport keys matter */
         char err[256];
         if (rx_conf_load_any(&conf, conf_path, err, sizeof err) != 0) { fprintf(stderr, "[guardian] %s\n", err); return 2; }
@@ -347,7 +360,7 @@ int main(int argc, char **argv)
     shm->hz = cfg.hz; shm->half_len = cfg.half_len; shm->theta_max = cfg.theta_max; shm->edge_margin = cfg.edge_margin;
     snprintf(shm->backend, sizeof shm->backend, "%s", o.backend);
     snprintf(shm->plant, sizeof shm->plant, "%s", rx_plant_ops(cfg.plant)->name);
-    snprintf(shm->calibrated_at, sizeof shm->calibrated_at, "%s", serial ? (o.uncalibrated ? "uncalibrated" : conf.calibrated_at) : "-");
+    snprintf(shm->calibrated_at, sizeof shm->calibrated_at, "%s", hw ? (o.uncalibrated ? "uncalibrated" : conf.calibrated_at) : "-");
     snprintf(shm->pilot_transport, sizeof shm->pilot_transport, "%s", udp ? "udp" : "local");
     snprintf(shm->pilot_peer, sizeof shm->pilot_peer, "%s", udp ? conf.pilot_peer : "");
     atomic_store(&shm->node_link, 0); atomic_store(&shm->node_proto, 0);
@@ -356,7 +369,10 @@ int main(int argc, char **argv)
     atomic_store(&shm->pilot_present, 0);
     if (o.learn) atomic_store(&shm->training, 1);
 
-    rx_io_t *io = serial ? rx_io_serial_open(&cfg, o.dev, shm, &conf) : rx_io_sim_open(&cfg, shm, o.fresh);
+    if (beam && o.uncalibrated) { fprintf(stderr, "[guardian] --backend beam never runs uncalibrated\n"); return 2; }
+    rx_io_t *io = serial ? rx_io_serial_open(&cfg, o.dev, shm, &conf)
+                : beam   ? rx_io_beam_open(&cfg, shm, &conf, "beam.csv")
+                :          rx_io_sim_open(&cfg, shm, o.fresh);
     if (!io) return 1;
 
     /* real-time hygiene: no page faults, fixed priority */
@@ -415,7 +431,7 @@ int main(int argc, char **argv)
     rx_guard_t g; rx_guard_init(&g);
     rx_proposal_t prop, last_prop;
     memset(&prop, 0, sizeof prop); memset(&last_prop, 0, sizeof last_prop);
-    int have_prop = 0, sensor_ok = 1;
+    int have_prop = 0, sensor_ok = 1, estop_on = 0;
     pid_t pilot = 0;
     int spawn_pending = 0;
     uint32_t seq = 0, last_prop_tick = 0, pilot_started_tick = 0, respawn_at = 0;
@@ -425,7 +441,8 @@ int main(int argc, char **argv)
     uint64_t t_ideal = rx_server_start_ns(srv) + period, last_print = 0;            /* expiry k is due at start + k*period */
     uint64_t sp_phase_ns = 0; int sp_sign = 1;
     const rx_plant_ops_t *P = rx_plant_ops(cfg.plant);
-    const float sp_amp = cfg.plant == RX_PLANT_JOINT ? 0.6f : 0.08f;   /* automatic square wave: +-80 mm / +-0.6 rad */
+    float sp_amp = cfg.plant == RX_PLANT_JOINT ? 0.6f : 0.08f;         /* automatic square wave: +-80 mm / +-0.6 rad */
+    if (sp_amp > cfg.sp_limit) sp_amp = cfg.sp_limit;                    /* a short beam (beam-direct: +-15 mm) */
     uint8_t prev_mode = 255;
     uint64_t udp_refused_seen = atomic_load(&shm->udp_rx_peer);
     uint32_t udp_boots_seen = atomic_load(&shm->udp_boots);
@@ -464,7 +481,7 @@ int main(int argc, char **argv)
         if (fresh && isfinite(z)) rx_est_update(&est, &cfg, z);
         else rx_est_predict(&est, &cfg);                             /* no new sample this tick */
         int ok_now = isfinite(z) && !lost;
-        if (sensor_ok && !ok_now) rx_event_push(shm, seq, serial ? RX_E_SENSOR_LOST : RX_E_BALL_LOST, 0);
+        if (sensor_ok && !ok_now) rx_event_push(shm, seq, hw ? RX_E_SENSOR_LOST : RX_E_BALL_LOST, 0);
         sensor_ok = ok_now;
 
         /* setpoint: automatic square wave, or whatever the operator asked for */
@@ -482,6 +499,10 @@ int main(int argc, char **argv)
         rx_guard_out_t out;
         rx_guard_step(&g, &cfg, est.x, est.v, sp_m, &in, &out);
         if (!ok_now) out.u_out = P->u_eq(&cfg, est.x);               /* nothing measured: hold (beam: level) */
+        if (io->estop && io->estop(io)) {                            /* e-stop / actuator trip: beam level, AI stopped */
+            out.u_out = P->u_eq(&cfg, est.x);
+            if (!estop_on) { estop_on = 1; atomic_store(&shm->force_fallback, 1); }
+        }
 
         io->write(io, out.u_out);
 
@@ -560,6 +581,8 @@ int main(int argc, char **argv)
         }
         if (offence_age > 0 && --offence_age == 0) offences = 0;
         if (atomic_exchange(&shm->cmd_release_quarantine, 0)) {
+            if (io->release) io->release(io);                       /* e-stop latch (beam-direct) */
+            if (estop_on) { estop_on = 0; atomic_store(&shm->force_fallback, 0); }
             if (atomic_exchange(&shm->quarantined, 0)) rx_event_push(shm, seq, RX_E_RELEASE, 0);
             offences = 0;
             if (udpl) rx_guest_release(&gst, seq / (double)cfg.hz);

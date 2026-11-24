@@ -45,7 +45,8 @@ int rx_conf_check(const rx_conf_t *c, char *err, size_t errcap)
         ERR("range_min_mm..range_max_mm (%d..%d) must be an increasing window inside 0..2000", c->range_min_mm, c->range_max_mm);
     if (c->center_mm <= c->range_min_mm || c->center_mm >= c->range_max_mm)
         ERR("center_mm %d is not inside the range window %d..%d", c->center_mm, c->range_min_mm, c->range_max_mm);
-    if (!(c->half_len_m >= 0.10f && c->half_len_m <= 0.20f)) ERR("half_len_m %g outside 0.10..0.20", (double)c->half_len_m);
+    /* 0.03: the beam-direct rig sees its ball over 84 mm only (step3-roll). The guardian only ever shortens its beam. */
+    if (!(c->half_len_m >= 0.03f && c->half_len_m <= 0.20f)) ERR("half_len_m %g outside 0.03..0.20", (double)c->half_len_m);
     if ((c->servo_min_us != 0) != (c->servo_max_us != 0)) ERR("servo_min_us and servo_max_us come together");
     if (c->servo_min_us && !(c->servo_min_us >= 500 && c->servo_min_us < c->level_us && c->level_us < c->servo_max_us && c->servo_max_us <= 2500))
         ERR("servo limits %d..%d us must satisfy 500 <= servo_min_us < level_us (%d) < servo_max_us <= 2500",

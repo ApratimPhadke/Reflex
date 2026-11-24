@@ -32,6 +32,21 @@ void rx_cfg_hardware(rx_cfg_t *c)
     c->est_tau = 0.08f;              /* a time-of-flight sensor is several mm noisy */
 }
 
+/* Physical numbers only; the envelope maths, brake_eta, margins and strike logic are the same as for every rig.
+ *   theta_max: limited by the servo travel around level (step2-range-2): the smaller side, so it is never
+ *              more than the beam can do in either direction.
+ *   t_delay:   measurement 1 tick old (20 ms) + median of 3 (20 ms) + estimator (est_tau, 40 ms) + one full
+ *              reversal of the beam at the backend's slew limit (reversal_s).
+ *   est_tau:   0.04 s: the HC-SR04 is 0.1 mm noisy with the ball still (step3-still), so less smoothing.
+ *   sp_limit:  setpoints within +-15 mm: the ball is seen over +-42 mm only. */
+void rx_cfg_beam_direct(rx_cfg_t *c, float theta_max, float reversal_s)
+{
+    c->theta_max = theta_max;
+    c->est_tau = 0.04f;
+    c->t_delay = 0.02f + 0.02f + 0.04f + reversal_s;
+    c->sp_limit = 0.015f;
+}
+
 /* One revolute joint lifting a link against gravity, driven by a torque-limited motor, between hard angle
  * stops: a stand-in for an exoskeleton knee or a surgical-arm joint. Simulation only.
  *   x'' = (tau - mgl sin x - b x') / I,   |tau| <= theta_max,   |x| <= half_len

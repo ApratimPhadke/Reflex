@@ -45,6 +45,7 @@ ifeq ($(QNX),1)
     CFLAGS += -DRX_NO_TRACE
   endif
   EXTRA   := $(OUT)/rxfs $(OUT)/rxhw
+  GHW     := src/hw/rx_rpi.c          # beam-direct backend: the Pi's GPIO/PWM/I2C
   ifeq ($(HAM),1)
     EXTRA += $(OUT)/rxham
   endif
@@ -69,8 +70,8 @@ all: $(BINS)
 $(OUT):
 	mkdir -p $(OUT)
 
-$(OUT)/reflex-guardian: src/guardian/main.c src/guardian/rx_io.c $(CORE) $(IPC) $(UDP) $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) -o $@ src/guardian/main.c src/guardian/rx_io.c $(CORE) $(IPC) $(UDP) $(LIBS) $(NETLIBS)
+$(OUT)/reflex-guardian: src/guardian/main.c src/guardian/rx_io.c src/guardian/rx_io_beam.c $(GHW) $(CORE) $(IPC) $(UDP) $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) -Isrc/hw -o $@ src/guardian/main.c src/guardian/rx_io.c src/guardian/rx_io_beam.c $(GHW) $(CORE) $(IPC) $(UDP) $(LIBS) $(NETLIBS)
 
 $(OUT)/reflex-pilot: src/pilot/main.c $(CORE) $(IPC) $(UDP) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/pilot/main.c $(CORE) $(IPC) $(UDP) $(LIBS) $(NETLIBS)

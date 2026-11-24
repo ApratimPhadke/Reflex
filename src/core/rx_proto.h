@@ -80,6 +80,8 @@ typedef enum {
     RX_E_SENSOR_LOST, RX_E_LINK_DOWN, RX_E_LINK_UP, RX_E_NODE_INFO, RX_E_NODE_OLD,
     /* pilot over UDP (guest supervision, src/core/rx_guest.h) */
     RX_E_GUEST_DOWN, RX_E_GUEST_UP, RX_E_GUEST_RESTART, RX_E_GUEST_QUARANTINE, RX_E_GUEST_CMD_FAILED, RX_E_GUEST_INSTANCE,
+    /* beam-direct rig (src/guardian/rx_io_beam.c) */
+    RX_E_ESTOP, RX_E_SERVO_TRIP,
     RX_E_COUNT
 } rx_evcode_e;
 static const char *const rx_event_name[] = { "?", "guardian started", "guardian took over", "AI back in control",
@@ -91,7 +93,10 @@ static const char *const rx_event_name[] = { "?", "guardian started", "guardian 
     "guest restart command issued (arg 1 = timed out, 2 = never came up, 3 = unsafe commands)",
     "GUEST QUARANTINED: 5 restarts in 10 min (rxctl release)",
     "guest restart command failed (arg = exit status, -1 = ran over 60 s, -2 = could not start)",
-    "new pilot instance (arg = its id)" };
+    "new pilot instance (arg = its id)",
+    "E-STOP: button pressed, beam level, AI stopped (rxctl release)",
+    "SERVO TRIP: current above 1.5 A for 3 ticks, servo limp until restart (arg = mA)" };
+_Static_assert(sizeof rx_event_name / sizeof rx_event_name[0] == RX_E_COUNT, "event names out of step");
 typedef struct { uint64_t t_ns; uint32_t seq; uint16_t code; int32_t arg; } rx_event_t;
 
 /* ---- telemetry record (one per control tick) ------------------------- */

@@ -40,7 +40,11 @@ typedef struct {
 
 void  rx_cfg_default(rx_cfg_t *c, float hz);
 void  rx_cfg_hardware(rx_cfg_t *c);   /* adjustments for the real beam: slow, noisy sensor and a real servo */
-void  rx_cfg_joint(rx_cfg_t *c, float hz);   /* the robot-joint plant (replaces everything rx_cfg_default set) */
+void  rx_cfg_joint(rx_cfg_t *c, float hz);
+/* the beam-direct rig (after rx_cfg_hardware): physical numbers measured in results/2026-11-24-beam-direct.
+ * theta_max: the smaller side of the servo's authority around level [rad]; reversal_s: time to swing the
+ * beam from +theta_max to -theta_max at the backend's slew limit. */
+void  rx_cfg_beam_direct(rx_cfg_t *c, float theta_max, float reversal_s);   /* the robot-joint plant (replaces everything rx_cfg_default set) */
 
 /* alpha-beta position/velocity estimator */
 typedef struct { float x, v; int init; } rx_est_t;
