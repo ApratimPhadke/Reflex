@@ -1,0 +1,26 @@
+date: 2026-11-25 IST; link attached by the user with the servo where the jog left it (2300 us command)
+commit: 444733f7af5f28494df6e938dc5100cdce25f3e0
+command: ssh qnxpi 'cd reflex && ./rxhw range 2300 4.80 100'
+
+PWM on at 2300 us: tilt from level -0.22 deg (limp -0.21)
+down
+  2298.0 us  tilt from level  -0.24 deg     8 mA  5.00 V
+  2256.0 us  tilt from level  +0.07 deg    33 mA  4.96 V
+  2214.0 us  tilt from level  +0.15 deg    32 mA  4.98 V
+  2172.0 us  tilt from level  -0.22 deg     4 mA  4.96 V
+  -> low end 2172 us (beam stopped moving)
+back up
+  2174.0 us  tilt from level  -0.08 deg    18 mA  5.01 V
+  2216.0 us  tilt from level  -1.04 deg    40 mA  4.98 V
+  2258.0 us  tilt from level  -0.05 deg    37 mA  4.98 V
+  2300.0 us  tilt from level  -0.43 deg    38 mA  4.97 V
+  2302.0 us  tilt from level  -0.30 deg    50 mA  4.93 V
+  2344.0 us  tilt from level  -0.41 deg    35 mA  4.96 V
+  2386.0 us  tilt from level  -0.47 deg    23 mA  5.01 V
+  -> high end 2402 us (beam stopped moving)
+back to 2300 us
+  2400.0 us  tilt from level  -0.72 deg    38 mA  4.99 V
+  2358.0 us  tilt from level  +0.02 deg   266 mA  4.51 V
+  2316.0 us  tilt from level  -0.31 deg    34 mA  4.96 V
+at 2300 us again: tilt from level -0.19 deg
+RESULT low end 2172 us (beam stopped moving), high end 2402 us (beam stopped moving); peak 376 mA, min supply 4.34 V; rows in range.csv
