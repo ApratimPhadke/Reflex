@@ -44,7 +44,7 @@ ifeq ($(QNX),1)
   ifeq ($(TRACE),0)
     CFLAGS += -DRX_NO_TRACE
   endif
-  EXTRA   := $(OUT)/rxfs
+  EXTRA   := $(OUT)/rxfs $(OUT)/rxhw
   ifeq ($(HAM),1)
     EXTRA += $(OUT)/rxham
   endif
@@ -96,6 +96,11 @@ $(OUT)/rxcal: src/tools/rxcal.c $(CORE) $(HDRS) | $(OUT)
 
 $(OUT)/rxfs: src/qnx/rxfs.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxfs.c $(CORE) $(LIBS)
+
+# beam-direct rig on the Pi itself (GPIO/PWM/I2C, no microcontroller): bring-up and sensor checks
+HW := src/hw/rx_rpi.c
+$(OUT)/rxhw: src/hw/rxhw.c $(HW) src/hw/rx_rpi.h | $(OUT)
+	$(CC) $(CFLAGS) -Isrc/hw -o $@ src/hw/rxhw.c $(HW) -lm
 
 $(OUT)/rxham: src/qnx/rxham.c | $(OUT)
 	$(CC) $(CFLAGS) -o $@ src/qnx/rxham.c -Wl,-Bstatic -lham -Wl,-Bdynamic   # libham.so is not on the Pi 4 quick-start image
