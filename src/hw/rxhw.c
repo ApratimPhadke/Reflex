@@ -615,6 +615,91 @@ static int cmd_range(int bus, float start, float level_off, float rate)
     return 0;
 }
 
+/* Ramp smoothly from from_us (where the servo is) to to_us and hold there, watching the current, until the
+ * button is pressed, SIGTERM, or max_s. For re-attaching a linkage with the servo at a known position. */
+static int cmd_hold(int bus, float from, float to, float rate, double max_s)
+{
+    signal(SIGTERM, on_term); signal(SIGINT, on_term); signal(SIGHUP, SIG_IGN);
+    s_fd = rx_i2c_open(bus);
+    if (s_fd < 0 || rx_gpio_open() != 0 || rx_mpu_init(s_fd, A_MPU1, NULL) != 0) { perror("rxhw hold"); return 1; }
+    if (from < 500 || from > 2500 || to < 500 || to > 2500) { printf("pulses must be 500..2500 us\n"); return 1; }
+    rx_gpio_input(PIN_BUTTON, 1); rx_gpio_output(PIN_LED, 0);
+    if (rx_gpio_pwm_setup(PIN_SERVO, 50, JOG_RANGE) != 0 || rx_gpio_pwm_duty(PIN_SERVO, (unsigned)(from / JOG_US_PER_COUNT + 0.5f)) != 0) { jlimp(); perror("PWM"); return 1; }
+    if (wait_watch(800, NULL) != 0) return 1;
+    float us = from, e; const char *why;
+    printf("ramp %.0f -> %.0f us at %.0f us/s\n", from, to, rate); fflush(stdout);
+    if (ramp_to(&us, to, rate, 0, 0, 0, 0, &e, &why, NULL) < 0) { jlimp(); printf("stopped: %s\n", why); return 1; }
+    printf("HOLDING at %.0f us: press the button to release (or %.0f min)\n", us, max_s / 60); fflush(stdout);
+    double t0 = now_s(); int low = 0;
+    while (!jog_quit && now_s() - t0 < max_s) {
+        if (wait_watch(100, NULL) != 0) return 1;
+        low = rx_gpio_read(PIN_BUTTON) == 0 ? low + 1 : 0;
+        if (low >= 1) { printf("button: release\n"); break; }
+        rx_gpio_write(PIN_LED, (int)(now_s() * 2) & 1);
+    }
+    jlimp(); rx_gpio_write(PIN_LED, 0);
+    printf("servo limp (peak %.0f mA, min supply %.2f V)\n", s_peak_a * 1000, s_min_v);
+    return 0;
+}
+
+/* Ball sensing, driven by the button so the person sets the pace. For each position: LED blinks fast = place the
+ * ball there and press; LED steady = sampling (3 s, one ping per period_ms). Then the noise run: ball left still
+ * at the centre, press, 10 s. Servo untouched. Raw readings go to ballmap.csv (phase,t_s,mm; -1 = no echo). */
+static void wait_press(void)
+{
+    int low = 0;
+    while (rx_gpio_read(PIN_BUTTON) == 0) usleep(20000);           /* released first */
+    while (low < 2) { low = rx_gpio_read(PIN_BUTTON) == 0 ? low + 1 : 0; rx_gpio_write(PIN_LED, (int)(now_s() * 6) & 1); usleep(20000); }
+    rx_gpio_write(PIN_LED, 1);
+    while (rx_gpio_read(PIN_BUTTON) == 0) usleep(20000);
+    usleep(300000);                                               /* hand away from the sensor */
+}
+static void sonar_stats(const char *name, const float *v, int n, double secs, float near_mm)
+{
+    float d[2000]; int k = 0, none = 0, far = 0;
+    for (int i = 0; i < n; i++) { if (v[i] < 0) none++; else if (v[i] > near_mm) far++; else if (k < 2000) d[k++] = v[i]; }
+    printf("%-10s %d pings in %.1f s (%.1f Hz): ball-range (<%.0f mm) %d (%.0f %%), farther %d, no echo %d\n",
+           name, n, secs, n / secs, near_mm, k, 100.0 * k / n, far, none);
+    if (!k) return;
+    qsort(d, (size_t)k, sizeof d[0], cmp_f);
+    double m = 0, v2 = 0; for (int i = 0; i < k; i++) m += d[i];
+    m /= k;
+    for (int i = 0; i < k; i++) v2 += (d[i] - m) * (d[i] - m);
+    printf("           median %.1f mm, mean %.1f, sd %.1f, p10 %.1f, p90 %.1f, min %.1f, max %.1f\n",
+           d[k / 2], m, sqrt(v2 / k), d[k / 10], d[k - 1 - k / 10], d[0], d[k - 1]);
+    int h[40] = { 0 }; for (int i = 0; i < k; i++) { int b = (int)(d[i] / 10); if (b >= 0 && b < 40) h[b]++; }
+    printf("           histogram (10 mm bins):"); for (int b = 0; b < 40; b++) if (h[b]) printf(" %d:%d", b * 10, h[b]);
+    printf("\n"); fflush(stdout);
+}
+static int cmd_ballmap(int period_ms, float near_mm)
+{
+    if (rx_gpio_open() != 0) { perror("rxhw ballmap"); return 1; }
+    rx_gpio_input(PIN_BUTTON, 1); rx_gpio_output(PIN_LED, 0);
+    rx_sonar_t so; if (rx_sonar_open(&so, PIN_TRIG, PIN_ECHO) != 0) { perror("sonar"); return 1; }
+    FILE *csv = fopen("ballmap.csv", "w"); if (csv) fprintf(csv, "phase,t_s,mm\n");
+    const char *ph[] = { "hinge-stop", "centre", "far-stop", "still" };
+    const double dur[] = { 3, 3, 3, 10 };
+    static float v[2000];
+    for (int p = 0; p < 4; p++) {
+        printf("\n[%s] %s, then press the button\n", ph[p], p < 3 ? "hold the ball there" : "leave the ball still at the centre, hands away");
+        fflush(stdout);
+        wait_press();
+        int n = 0; double t0 = now_s(), next = t0;
+        while (now_s() - t0 < dur[p] && n < 2000) {
+            float mm = rx_sonar_measure(&so, 40, NULL);
+            v[n++] = mm;
+            if (csv) fprintf(csv, "%s,%.3f,%.1f\n", ph[p], now_s() - t0, mm);
+            next += period_ms / 1000.0;
+            double w = next - now_s(); if (w > 0) usleep((useconds_t)(w * 1e6));
+        }
+        rx_gpio_write(PIN_LED, 0);
+        sonar_stats(ph[p], v, n, now_s() - t0, near_mm);
+    }
+    if (csv) fclose(csv);
+    printf("\ndone (raw readings in ballmap.csv)\n");
+    return 0;
+}
+
 static int cmd_led(int n)
 {
     if (rx_gpio_output(PIN_LED, 0) != 0) { perror("rxhw led"); return 1; }
@@ -667,6 +752,8 @@ int main(int argc, char **argv)
         return 0;
     }
     if (!strcmp(argv[1], "range") && argc >= 4) return cmd_range(bus, (float)atof(argv[2]), (float)atof(argv[3]), argc >= 5 ? (float)atof(argv[4]) : 100);
+    if (!strcmp(argv[1], "hold") && argc >= 4) return cmd_hold(bus, (float)atof(argv[2]), (float)atof(argv[3]), argc >= 5 ? (float)atof(argv[4]) : 100, argc >= 6 ? atof(argv[5]) : 1200);
+    if (!strcmp(argv[1], "ballmap")) return cmd_ballmap(argc >= 3 ? atoi(argv[2]) : 30, argc >= 4 ? (float)atof(argv[3]) : 350);
     if (!strcmp(argv[1], "at-level")) return cmd_at_level(bus);
     if (!strcmp(argv[1], "jog")) return cmd_jog(bus, argc >= 3 ? argv[2] : "reflex.conf", argc >= 4 ? (float)atof(argv[3]) : 2300, argc >= 5 ? (float)atof(argv[4]) : 20);
     if (!strcmp(argv[1], "servo-off")) { if (rx_gpio_pwm_duty(PIN_SERVO, 0) != 0) { perror("servo-off"); return 1; } printf("servo limp\n"); return 0; }

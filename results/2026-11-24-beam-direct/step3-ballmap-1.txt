@@ -1,0 +1,17 @@
+date: 2026-11-25 IST; ball held at the hinge stop, centre, far stop (button-driven); servo limp
+commit: a1bd6a3740fc26a2c6293e64ae225deb6c03067f + rxhw ballmap (next commit)
+command: ssh qnxpi 'cd reflex && ./rxhw ballmap 30 350'  (stopped while waiting for the 'still' press)
+
+
+[hinge-stop] hold the ball there, then press the button
+hinge-stop 100 pings in 3.0 s (33.3 Hz): ball-range (<350 mm) 0 (0 %), farther 100, no echo 0
+
+[centre] hold the ball there, then press the button
+centre     100 pings in 3.0 s (33.3 Hz): ball-range (<350 mm) 0 (0 %), farther 100, no echo 0
+
+[far-stop] hold the ball there, then press the button
+far-stop   100 pings in 3.0 s (33.3 Hz): ball-range (<350 mm) 0 (0 %), farther 100, no echo 0
+
+[still] leave the ball still at the centre, hands away, then press the button
+
+distances (all pings, mm): hinge-stop median 686 (673..704), centre median 673 (664..704), far-stop: same wall (CSV cut short)
