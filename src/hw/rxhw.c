@@ -12,6 +12,7 @@
  * Wiring (BCM numbers): servo PWM GPIO18, HC-SR04 trig GPIO23 / echo GPIO24 (1k/2k divider),
  * button GPIO17 to GND (internal pull-up), LED GPIO22. I2C: INA219 0x40, MPU6050 0x68 (beam), 0x69 (spare). */
 #include <errno.h>
+#include <signal.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -415,6 +416,122 @@ static int cmd_servo_level(int bus, const char *conf_path, double hold_s)
     return 0;
 }
 
+/* ------------------------------------------------------------------ jog: smooth ramp, the person marks level
+ * PWM at 5 us resolution (range 4000 at 50 Hz; the QSTI GPIO manager refuses ranges above 4095). Starts at the pulse the beam already rests at (from the MPU
+ * and the sweep's tilt map) so there is no jump, then ramps at rate_us_s towards stop_us. The person presses
+ * the e-stop button when the beam looks horizontal: the pulse freezes there and is held; a second press (or
+ * SIGTERM) makes the servo limp. Stops by itself: 1.5 A, holding current > 0.8 A for 0.5 s, the beam not
+ * rising any more (< 0.2 deg over the last 60 us of travel past the saved limit), the 2400 us ceiling. */
+#define JOG_RANGE 4000
+#define JOG_US_PER_COUNT (20000.0f / JOG_RANGE)
+static volatile sig_atomic_t jog_quit;
+static void on_term(int s) { (void)s; jog_quit = 1; }
+static void jlimp(void) { rx_gpio_pwm_duty(PIN_SERVO, 0); }
+static int cmd_jog(int bus, const char *conf_path, float stop_us, float rate)
+{
+    rx_conf_t cf; char err[200];
+    if (rx_conf_load(&cf, conf_path, err, sizeof err) != 0) { printf("%s\n", err); return 1; }
+    signal(SIGTERM, on_term); signal(SIGINT, on_term); signal(SIGHUP, SIG_IGN);
+    s_fd = rx_i2c_open(bus);
+    if (s_fd < 0 || rx_gpio_open() != 0 || rx_mpu_init(s_fd, A_MPU1, NULL) != 0) { perror("rxhw jog"); return 1; }
+    rx_gpio_input(PIN_BUTTON, 1); rx_gpio_output(PIN_LED, 0);
+    if (stop_us > 2400) stop_us = 2400;
+    printf("waiting for the first button press to start (servo limp, LED blinking fast)...\n"); fflush(stdout);
+    { int lowc = 0; double tw = now_s();
+      while (!jog_quit && lowc < 2) {
+          lowc = rx_gpio_read(PIN_BUTTON) == 0 ? lowc + 1 : 0;
+          rx_gpio_write(PIN_LED, (int)(now_s() * 6) & 1);
+          if (now_s() - tw > 900) { printf("no press in 15 min: nothing moved\n"); rx_gpio_write(PIN_LED, 0); return 1; }
+          usleep(20000);
+      }
+      if (jog_quit) { rx_gpio_write(PIN_LED, 0); return 1; }
+      while (rx_gpio_read(PIN_BUTTON) == 0) usleep(20000);     /* wait for release */
+      usleep(200000); }
+    float g[3]; if (gravity(g) != 0) return 1;
+    float t_rest = beam_tilt(g);
+    /* tilt map of the last sweep (step2-servo-cal-3): tilt = 17.0 deg at 1504 us, -6.51 deg per 1000 us */
+    float us = 1504.0f + (17.0f - t_rest) / 0.00651f;
+    if (us < cf.servo_min_us) us = (float)cf.servo_min_us;
+    if (us > cf.servo_max_us) us = (float)cf.servo_max_us;
+    printf("rest tilt %+.2f deg -> start at %.0f us (no jump); ramp %.0f us/s to %.0f us; press the button when horizontal\n",
+           t_rest, us, rate, stop_us); fflush(stdout);
+    if (rx_gpio_pwm_setup(PIN_SERVO, 50, JOG_RANGE) != 0 || rx_gpio_pwm_duty(PIN_SERVO, (unsigned)(us / JOG_US_PER_COUNT + 0.5f)) != 0) { jlimp(); perror("PWM"); return 1; }
+    if (wait_watch(1200, NULL) != 0) return 1;
+    if (gravity(g) != 0) { jlimp(); return 1; }
+    float t_on = beam_tilt(g);
+    printf("PWM on at %.0f us (5 us resolution): tilt %+.2f deg (rest %+.2f)\n", us, t_on, t_rest); fflush(stdout);
+    if (fabsf(t_on - t_rest) > 2.0f) { jlimp(); printf("STOP: the beam moved %.1f deg when the PWM came on; the 1 us PWM setting is not what it seems\n", t_on - t_rest); return 1; }
+    int marked = 0, low = 0, over = 0; double last_print = 0, t0 = now_s(); float mark_us = 0, mark_t = 0;
+    float hist_us[64], hist_t[64]; int nh = 0;
+    while (!jog_quit) {
+        float a, v; if (rx_ina_read(s_fd, A_INA, &v, NULL, &a, NULL) != 0) { jlimp(); printf("STOP: INA219 read failed\n"); return 1; }
+        a = fabsf(a); if (a > s_peak_a) s_peak_a = a; if (v < s_min_v) s_min_v = v;
+        if (a > SERVO_TRIP_A) { jlimp(); printf("TRIP: %.2f A at %.0f us, servo limp\n", a, us); return 1; }
+        over = a > 0.8f ? over + 1 : 0;
+        if (over >= 25) { jlimp(); printf("STOP: holding current above 0.8 A for 0.5 s at %.0f us (binding?), servo limp\n", us); return 1; }
+        int b = rx_gpio_read(PIN_BUTTON);
+        low = b == 0 ? low + 1 : 0;
+        if (low == 2) {                                         /* a press (debounced, 40 ms) */
+            if (!marked) {
+                marked = 1; mark_us = us;
+                if (gravity(g) == 0) mark_t = beam_tilt(g);
+                printf("MARK: horizontal at %.0f us, MPU tilt there %+.2f deg (holding; press again to release)\n", mark_us, mark_t); fflush(stdout);
+            } else { printf("second press: release\n"); break; }
+        }
+        if (!marked && us < stop_us) {
+            us += rate * 0.02f; if (us > stop_us) us = stop_us;
+            rx_gpio_pwm_duty(PIN_SERVO, (unsigned)(us / JOG_US_PER_COUNT + 0.5f));
+        }
+        rx_gpio_write(PIN_LED, marked ? ((int)(now_s() * 2) & 1) : 1);
+        if (now_s() - last_print >= 0.5) {
+            last_print = now_s();
+            rx_mpu_t m; float t = NAN; if (rx_mpu_read(s_fd, A_MPU1, &m) == 0) { float gg[3] = { m.ax, m.ay, m.az }; t = beam_tilt(gg); }
+            printf("t=%5.1f  %6.1f us  tilt %+6.2f deg  %4.0f mA  %.2f V%s\n", now_s() - t0, us, t, a * 1000, v, marked ? "  HOLDING" : ""); fflush(stdout);
+            /* not rising any more past the saved limit: the tilt barely changed over the last 60 us of travel */
+            if (!marked && !isnan(t)) {
+                if (nh < 64) { hist_us[nh] = us; hist_t[nh] = t; nh++; } else { memmove(hist_us, hist_us + 1, 63 * sizeof *hist_us); memmove(hist_t, hist_t + 1, 63 * sizeof *hist_t); hist_us[63] = us; hist_t[63] = t; }
+                for (int j = 0; j < nh; j++) if (us - hist_us[j] >= 60 && us > cf.servo_max_us) {
+                    if (hist_t[j] - t < 0.2f) { printf("STOP: the beam stopped rising (%.2f deg over %.0f us) at %.0f us; holding here\n", hist_t[j] - t, us - hist_us[j], us); fflush(stdout); stop_us = us; }
+                    break;
+                }
+            }
+        }
+        usleep(20000);
+    }
+    jlimp(); rx_gpio_write(PIN_LED, 0);
+    printf("servo limp. %s; peak %.0f mA, min supply %.2f V\n", marked ? "marked" : "no mark", s_peak_a * 1000, s_min_v);
+    if (marked) printf("RESULT level %.0f us, MPU tilt at level %+.2f deg\n", mark_us, mark_t);
+    return 0;
+}
+
+/* Read-only: the beam is level and the ball centred (a person says so). Mean MPU over 3 s (beam tilt, roll)
+ * and the HC-SR04 distance to the ball. Nothing moves. */
+static int cmd_at_level(int bus)
+{
+    s_fd = rx_i2c_open(bus);
+    if (s_fd < 0 || rx_gpio_open() != 0 || rx_mpu_init(s_fd, A_MPU1, NULL) != 0) { perror("rxhw at-level"); return 1; }
+    double st = 0, st2 = 0, sr = 0; int n = 0;
+    for (int i = 0; i < 150; i++) {
+        rx_mpu_t m;
+        if (rx_mpu_read(s_fd, A_MPU1, &m) == 0) {
+            float g[3] = { m.ax, m.ay, m.az }, t = beam_tilt(g);
+            st += t; st2 += t * t; sr += rad2deg(atan2f(m.ay, m.az)); n++;
+        }
+        usleep(20000);
+    }
+    if (!n) { printf("no MPU data\n"); return 1; }
+    double mt = st / n, sd = sqrt(fmax(0, st2 / n - mt * mt));
+    printf("MPU over %d samples: beam tilt reading %+.2f deg (sd %.2f), roll %+.2f deg\n", n, mt, sd, sr / n);
+    rx_sonar_t so; float d[40]; int k = 0;
+    if (rx_sonar_open(&so, PIN_TRIG, PIN_ECHO) == 0)
+        for (int i = 0; i < 40; i++) { float mm = rx_sonar_measure(&so, 40, NULL); if (mm > 0) d[k++] = mm; usleep(50000); }
+    if (k) { qsort(d, (size_t)k, sizeof d[0], cmp_f);
+             printf("HC-SR04 to the ball: median %.1f mm (p10 %.1f, p90 %.1f), %d/40 echoes\n", d[k / 2], d[k / 10], d[k - 1 - k / 10], k); }
+    else printf("HC-SR04: no echoes\n");
+    printf("RESULT mpu_level_deg %+.2f  ball_centre_mm %.1f\n", mt, k ? d[k / 2] : NAN);
+    return 0;
+}
+
 static int cmd_led(int n)
 {
     if (rx_gpio_output(PIN_LED, 0) != 0) { perror("rxhw led"); return 1; }
@@ -457,6 +574,17 @@ int main(int argc, char **argv)
         return cmd_servo_cal(bus);
     }
     if (!strcmp(argv[1], "servo-level")) return cmd_servo_level(bus, argc >= 3 ? argv[2] : "reflex.conf", argc >= 4 ? atof(argv[3]) : 30);
+    if (!strcmp(argv[1], "pwm-probe")) {                       /* which PWM ranges the manager takes; duty stays 0 (no pulses) */
+        static const unsigned r[] = { 20000, 4096, 4095, 4000, 2048, 1024 };   /* 2026-11-25: up to 4095 accepted */
+        for (unsigned i = 0; i < sizeof r / sizeof r[0]; i++) {
+            int e = rx_gpio_pwm_setup(PIN_SERVO, 50, r[i]); int en = errno;
+            rx_gpio_pwm_duty(PIN_SERVO, 0);
+            printf("range %5u: %s (%.2f us per count)\n", r[i], e ? strerror(en) : "accepted", 20000.0 / r[i]);
+        }
+        return 0;
+    }
+    if (!strcmp(argv[1], "at-level")) return cmd_at_level(bus);
+    if (!strcmp(argv[1], "jog")) return cmd_jog(bus, argc >= 3 ? argv[2] : "reflex.conf", argc >= 4 ? (float)atof(argv[3]) : 2300, argc >= 5 ? (float)atof(argv[4]) : 20);
     if (!strcmp(argv[1], "servo-off")) { if (rx_gpio_pwm_duty(PIN_SERVO, 0) != 0) { perror("servo-off"); return 1; } printf("servo limp\n"); return 0; }
     if (!strcmp(argv[1], "led")) return cmd_led(argc >= 3 ? atoi(argv[2]) : 5);
     if (!strcmp(argv[1], "sonar") && argc >= 3) return cmd_sonar(atoi(argv[2]), argc >= 4 ? atoi(argv[3]) : 50);

@@ -1,0 +1,7 @@
+date: 2026-11-25 IST; the user lengthened the support (~20 cm), linked it to the top of the horn, says the beam is horizontal and the ball centred; servo limp
+commit: 7d7fd5e257f271873c5db8be7a82dc7558a7ae22 + rxhw at-level/jog (next commit)
+command: ssh qnxpi 'cd reflex && ./rxhw at-level'
+
+MPU over 150 samples: beam tilt reading +4.80 deg (sd 0.11), roll -7.97 deg
+HC-SR04 to the ball: median 653.1 mm (p10 166.9, p90 657.4), 40/40 echoes
+RESULT mpu_level_deg +4.80  ball_centre_mm 653.1
