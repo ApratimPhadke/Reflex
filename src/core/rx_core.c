@@ -38,13 +38,18 @@ void rx_cfg_hardware(rx_cfg_t *c)
  *   t_delay:   measurement 1 tick old (20 ms) + median of 3 (20 ms) + estimator (est_tau, 40 ms) + one full
  *              reversal of the beam at the backend's slew limit (reversal_s).
  *   est_tau:   0.04 s: the HC-SR04 is 0.1 mm noisy with the ball still (step3-still), so less smoothing.
- *   sp_limit:  setpoints within +-15 mm: the ball is seen over +-42 mm only. */
+ *   sp_limit:  setpoints within +-15 mm: the ball is seen over +-42 mm only.
+ *   inner_margin: 10 mm, scaled to the short beam (user-approved); it only sets when the AI gets control back. */
 void rx_cfg_beam_direct(rx_cfg_t *c, float theta_max, float reversal_s)
 {
     c->theta_max = theta_max;
     c->est_tau = 0.04f;
     c->t_delay = 0.02f + 0.02f + 0.04f + reversal_s;
     c->sp_limit = 0.015f;
+    c->inner_margin = 0.010f;   /* approved by the user 2026-11-25: the AI gets control back above 10 mm of margin,
+                                 * 10 of the 32 mm usable half-beam (the default 30 mm, 16 % of the original 190 mm,
+                                 * is never reached here: 26 mm at rest in the centre). Every AI command still
+                                 * meets the envelope check every tick. */
 }
 
 /* One revolute joint lifting a link against gravity, driven by a torque-limited motor, between hard angle
