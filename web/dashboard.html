@@ -93,8 +93,10 @@ function tiltBy(d){if(!isBD())return;const B=S.beam;const now=B.hold?B.hold_mrad
 function go(){if(pendX===null){$('pend').textContent='click the beam first';return}const mm=Math.round(pendX*1000);cmd('sp '+mm);cmd('tilt off');$('pend').textContent='balancing at '+mm+' mm'}
 document.addEventListener('keydown',e=>{if(!isBD())return;if(e.key==='Enter'){e.preventDefault();go()}else if(e.key===' '){e.preventDefault();holdAt(0)}else if(e.key==='ArrowRight')tiltBy(2);else if(e.key==='ArrowLeft')tiltBy(-2)});
 document.addEventListener('DOMContentLoaded',()=>{});
-setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,L=S.half_len,pxm=(w*0.42)/L;
- let x=(ev.clientX-rc.left-w/2)/pxm;x=Math.max(-S.sp_limit,Math.min(S.sp_limit,x));pendX=x;$('pend').textContent='go to '+Math.round(x*1000)+' mm (+'+(88+Math.round(x*1000))+' from sensor)';drawBeam()})},0);
+setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,h=+c.getAttribute('height'),G=bdGeom(w,h);
+ const px=ev.clientX-rc.left,py=ev.clientY-rc.top,d=((px-G.hx)*Math.cos(G.a)+(py-G.hy)*Math.sin(G.a))/G.k;   /* along the beam, mm */
+ let x=(d-BD.ball/2-BD.centre)/1000;const clamped=Math.abs(x)>S.sp_limit;x=Math.max(-S.sp_limit,Math.min(S.sp_limit,x));pendX=x;
+ $('pend').textContent='go to '+Math.round(BD.centre+x*1000)+' mm from the sensor'+(clamped?' (nearest allowed)':'')+' - Enter';drawBeam()})},0);
 function bdPanel(){const card=$('bdcard');if(!isBD()){card.style.display='none';return}card.style.display='block';const B=S.beam,r=S.recs.length?S.recs[S.recs.length-1]:null;
  const tilt=B.servo_dir*(B.applied-B.level)/B.us_per_mrad,f=(v,d,u)=>v===null||v===undefined?'-':v.toFixed(d)+(u||'');
  const rows=[['Beam', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">HELD at '+B.hold_mrad.toFixed(1)+' mrad</b> (guardian paused)':'guardian '+S.mode.toLowerCase()],
@@ -115,7 +117,34 @@ function drawJoint(){const[g,w,h]=fit($('beam'));const r=S.recs[S.recs.length-1]
  g.fillStyle='#2a313c';g.beginPath();g.arc(cx,cy,14,0,7);g.fill();
  g.fillStyle='#8b949e';g.font='12px system-ui';g.fillText('robot joint (simulated)   angle '+(r[1]*57.3).toFixed(1)+' deg   setpoint '+(r[2]*57.3).toFixed(0)+' deg   torque '+r[4].toFixed(2)+' N m',12,h-8);
  if(r[8]){g.fillStyle='#f85149';g.font='bold 20px system-ui';g.fillText('LIMIT HIT',w/2-50,30)}}
-function drawBeam(){if(S&&S.plant==='joint'&&S.recs.length)return drawJoint();const[g,w,h]=fit($('beam'));if(!S||!S.recs.length)return;const r=S.recs[S.recs.length-1],L=S.half_len;
+/* beam-direct rig as built: tape hinge + HC-SR04 at the LEFT end, servo lifting the RIGHT end through a link.
+ * Distances are from the sensor face to the ball's near surface (what the HC-SR04 reads); x = d - 88 mm. */
+const BD={len:210,ball:65,centre:88,seen:[46,130]};
+function bdGeom(w,h){const tilt=S.beam.servo_dir*(S.beam.applied-S.beam.level)/S.beam.us_per_mrad/1000;   /* rad, + = servo end down */
+ return{hx:w*0.09,hy:h*0.5,k:(w*0.80)/BD.len,a:tilt*8,tilt}}
+function bdPt(G,d,up){const c=Math.cos(G.a),s=Math.sin(G.a);return[G.hx+d*G.k*c+up*s,G.hy+d*G.k*s-up*c]}
+function drawBeamDirect(){const[g,w,h]=fit($('beam'));const r=S.recs.length?S.recs[S.recs.length-1]:null,G=bdGeom(w,h),B=S.beam;
+ const p0=bdPt(G,0,0),p1=bdPt(G,BD.len,0);
+ g.lineCap='round';
+ /* servo + link at the right end */
+ const ls=bdPt(G,BD.len-8,0);g.fillStyle='#2a313c';g.fillRect(ls[0]-26,h*0.82,52,26);g.strokeStyle='#8b949e';g.lineWidth=3;g.beginPath();g.moveTo(ls[0],h*0.82);g.lineTo(ls[0],ls[1]+4);g.stroke();
+ g.fillStyle='#8b949e';g.font='11px system-ui';g.fillText('servo '+B.applied+' us',ls[0]-34,h*0.82+40>h?h-2:h*0.82+40);
+ /* hinge + sensor at the left end */
+ g.fillStyle='#2a313c';g.beginPath();g.moveTo(p0[0]-14,h*0.88);g.lineTo(p0[0]+14,h*0.88);g.lineTo(p0[0],p0[1]+3);g.fill();
+ g.fillStyle='#58a6ff';g.fillRect(p0[0]-30,p0[1]-26,16,22);g.fillStyle='#8b949e';g.fillText('HC-SR04',p0[0]-44,p0[1]-32);
+ /* beam, well-seen zone, setpoint, pending target */
+ g.strokeStyle='#8b949e';g.lineWidth=7;g.beginPath();g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.stroke();
+ const z0=bdPt(G,BD.seen[0],0),z1=bdPt(G,BD.seen[1],0);g.strokeStyle='#3fb95055';g.lineWidth=7;g.beginPath();g.moveTo(z0[0],z0[1]);g.lineTo(z1[0],z1[1]);g.stroke();
+ const mark=(d,col,dash)=>{const a=bdPt(G,d,-6),b=bdPt(G,d,BD.ball*G.k+10);g.strokeStyle=col;g.lineWidth=2;g.setLineDash(dash?[5,4]:[]);g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.stroke();g.setLineDash([])};
+ if(r)mark(BD.centre+r[2]*1000+BD.ball/2,'#d29922',false);
+ if(pendX!==null)mark(BD.centre+pendX*1000+BD.ball/2,'#58a6ff',true);
+ /* ball: centre = near surface + radius */
+ const seen=r&&!r[8]&&B.filt!==null;
+ if(r){const d=BD.centre+(seen?r[1]*1000:0)+BD.ball/2,c=bdPt(G,d,BD.ball/2*G.k+4);g.globalAlpha=seen?1:0.35;g.fillStyle=seen?(MC[S.mode]||'#fff'):'#8b949e';g.beginPath();g.arc(c[0],c[1],BD.ball/2*G.k,0,7);g.fill();g.globalAlpha=1}
+ g.fillStyle='#8b949e';g.font='12px system-ui';
+ g.fillText((seen?'ball '+(BD.centre+r[1]*1000).toFixed(0)+' mm from the sensor (x '+(r[1]*1000).toFixed(1)+' mm)':'ball NOT SEEN by the HC-SR04')+'   setpoint '+(r?(BD.centre+r[2]*1000).toFixed(0):'-')+' mm   beam '+(G.tilt*57.3).toFixed(2)+' deg (drawn x8)   green = where the sensor sees well',12,h-8);
+ if(B.estop||B.trip){g.fillStyle='#f85149';g.font='bold 20px system-ui';g.fillText(B.estop?'E-STOP':'SERVO TRIP',w/2-50,30)}}
+function drawBeam(){if(isBD())return drawBeamDirect();if(S&&S.plant==='joint'&&S.recs.length)return drawJoint();const[g,w,h]=fit($('beam'));if(!S||!S.recs.length)return;const r=S.recs[S.recs.length-1],L=S.half_len;
  const bd=isBD(),u=bd?S.beam.servo_dir*(S.beam.applied-S.beam.level)/S.beam.us_per_mrad/1000:r[4],x=(r[9]!==null?r[9]:r[1]),cx=w/2,cy=h*0.62,pxm=(w*0.42)/L,a=u*(bd?8:1.5);
  g.save();g.translate(cx,cy);g.fillStyle='#2a313c';g.beginPath();g.moveTo(-16,60);g.lineTo(16,60);g.lineTo(0,6);g.fill();
  g.rotate(a);g.fillStyle='#f8514933';const ko=0.01*pxm;g.fillRect(-L*pxm,-5,ko,10);g.fillRect(L*pxm-ko,-5,ko,10);
@@ -163,6 +192,6 @@ function drawBench(){if(!S||!S.bench)return;const B=S.bench,f=v=>v===null?'-':v;
  [['mean settling time',B.settle,' s'],['worst overshoot',B.over,' mm'],['RMS tracking error',B.rms,' mm']].map(r=>'<tr><td>'+r[0]+'</td><td style="text-align:right"'+better(r[1][0],r[1][1])+'>'+f(r[1][0])+r[2]+'</td><td style="text-align:right"'+better(r[1][1],r[1][0])+'>'+f(r[1][1])+r[2]+'</td></tr>').join('')+
  '<tr><td>guardian interventions</td><td style="text-align:right">'+B.iv[0]+'</td><td style="text-align:right">'+B.iv[1]+'</td></tr><tr><td>steps not settled</td><td style="text-align:right">'+B.unsettled[0]+'</td><td style="text-align:right">'+B.unsettled[1]+'</td></tr></table>'}
 function drawEvents(){if(!S)return;$('ev').innerHTML=S.events.slice().reverse().map(e=>'<div>'+e[0].toFixed(1).padStart(7)+' s ago &nbsp; <span style="color:var(--ink)">'+e[1]+'</span></div>').join('')}
-async function tick(){try{const r=await fetch('/api/state');S=await r.json();kv();bdPanel();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent='guardian not reachable'}setTimeout(tick,100)}
+async function tick(){try{const r=await fetch('/api/state');S=await r.json();kv();bdPanel();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent=(e instanceof TypeError&&/fetch|network|Failed/i.test(e.message))?'guardian not reachable':'dashboard error: '+e.message;console.error(e)}setTimeout(tick,100)}
 tick();
 </script></body></html>
