@@ -18,7 +18,14 @@
  * Test disturbance (RX_BEAM_KICK="mrad:ms", step 4 trials only): one second after the ball is first seen, the
  * helper holds the beam at that tilt for that long whatever the guardian commands, like a hand tilting the beam,
  * still slew-limited and inside the servo limits; then the guardian has the beam again. Logged (kick column). 
- * The measurement the control thread reads is the one taken right after the previous command: 1 tick old. */
+ * The measurement the control thread reads is the one taken right after the previous command: 1 tick old.
+ * Acquisition: after the ball has been lost (or before it is first seen) it only counts as seen again once
+ * ACQ_NEED of the last ACQ_WIN ticks had a reading, all within ACQ_SPREAD_MM: a hand placing the ball gives
+ * scattered echoes for a few hundred ms (step4: 160, 507, 102, 85, 157, 72 mm in 0.5 s) and must not be
+ * taken for a ball racing toward an end. Until then the beam stays level, as with no measurement at all. */
+#define ACQ_WIN 25
+#define ACQ_NEED 20
+#define ACQ_SPREAD_MM 8.0f
 #include <errno.h>
 #include <math.h>
 #include <stdatomic.h>
@@ -59,6 +66,7 @@ typedef struct {
     /* control-thread side */
     uint32_t last_n; int gap; float last_x; int was_valid, lost_counted, told_estop, told_trip;
     int start_us;
+    float acq[ACQ_WIN]; uint8_t acq_ok[ACQ_WIN]; uint32_t acq_n; int acquired;
 } beam_t;
 
 static uint64_t mono_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
@@ -169,7 +177,15 @@ static float beam_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
         m->beam_tilt_deg = s.tilt_deg; m->beam_hit_pct = 0.98f * m->beam_hit_pct + (s.valid ? 2.0f : 0.0f);
         atomic_store(&m->beam_applied_us, (uint32_t)s.applied_us); atomic_store(&m->beam_target_us, (uint32_t)s.target_us);
         atomic_store(&m->beam_estop, (uint32_t)atomic_load(&b->estop)); atomic_store(&m->beam_trip, (uint32_t)(atomic_load(&b->trip) != 0));
-        if (s.valid) { b->gap = 0; b->last_x = s.x; } else b->gap++;
+        /* acquisition window over the last ACQ_WIN ticks */
+        b->acq[b->acq_n % ACQ_WIN] = s.valid ? s.x : NAN; b->acq_ok[b->acq_n % ACQ_WIN] = (uint8_t)s.valid; b->acq_n++;
+        if (!b->acquired && b->acq_n >= ACQ_WIN) {
+            int k = 0; float lo = 1e9f, hi = -1e9f;
+            for (int i = 0; i < ACQ_WIN; i++) if (b->acq_ok[i]) { k++; lo = fminf(lo, b->acq[i]); hi = fmaxf(hi, b->acq[i]); }
+            if (k >= ACQ_NEED && (hi - lo) * 1000.0f <= ACQ_SPREAD_MM) b->acquired = 1;
+        }
+        if (s.valid && b->acquired) { b->gap = 0; b->last_x = s.x; } else b->gap++;
+        if (b->gap >= RX_SONAR_LOST_TICKS) b->acquired = 0;        /* lost: acquire again next time */
         /* evaluation only (the guardian's decisions never use it): the ball reached the end of the beam it can
          * be seen on, or was last seen near an end and then vanished for 0.5 s */
         int at_end = s.valid && fabsf(s.x) >= b->cfg->half_len;
