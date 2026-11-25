@@ -17,10 +17,11 @@ SSH=(ssh -o HostName="$PI_IP" -o HostKeyAlias=qnxpi.local -o BatchMode=yes -o Co
 SCP_OPTS=(-o HostName="$PI_IP" -o HostKeyAlias=qnxpi.local -o BatchMode=yes)
 pi() { "${SSH[@]}" "cd reflex && $*"; }
 mkdir -p "$(dirname "$OUT")"
-pi "pidin -F '%N' 2>/dev/null | grep -q reflex-guardian" && { echo "a guardian is already running on the Pi"; exit 1; }
+pi "pidin -F '%N' 2>/dev/null | grep -q reflex-guardian" && { echo "a guardian is already running on the Pi (./run.sh stop)"; exit 1; }
 KICK_ENV=""; [ -n "${KICK:-}" ] && KICK_ENV="RX_BEAM_KICK=$KICK"           # KICK=mrad:ms (test disturbance)
 pi "./rxctl wipe >/dev/null 2>&1; rm -f beam.csv; ($KICK_ENV nohup ./reflex-guardian --backend beam --fresh $* > beam-guardian.log 2>&1 < /dev/null &)"
 sleep 1.5
+pi "slay -s TERM rxdash 2>/dev/null; sleep 0.3; (nohup ./rxdash 8080 > rxdash.log 2>&1 < /dev/null &)"   # same shared memory as this guardian
 case "$SP" in
     steps:*) IFS=: read -r _ AMP PER <<< "$SP"; pi "./rxctl period $((PER * 1000)) >/dev/null; ./rxctl sp auto >/dev/null" ;;
     *)       pi "./rxctl sp $SP >/dev/null" ;;
