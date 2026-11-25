@@ -34,18 +34,14 @@ void rx_cfg_hardware(rx_cfg_t *c)
 
 /* Physical numbers only; the envelope maths, brake_eta, margins and strike logic are the same as for every rig.
  *   theta_max: limited by the servo travel around level (step2-range-2): the smaller side, so it is never
- *              more than the beam can do in either direction. This is all the AI ever gets.
- *   theta_fb_pos: the servo lowers the servo end 2.6 deg but lifts it only 1.1 deg; the felt ball needs
- *              ~1.9-2.6 deg to start rolling (step4-breakaway). The fallback may use the larger side toward +x;
- *              the margin then assumes the largest command of the last t_delay for the push (rx_margin_applied).
+ *              more than the beam can do in either direction.
  *   t_delay:   measurement 1 tick old (20 ms) + median of 3 (20 ms) + estimator (est_tau, 40 ms) + one full
  *              reversal of the beam at the backend's slew limit (reversal_s).
  *   est_tau:   0.04 s: the HC-SR04 is 0.1 mm noisy with the ball still (step3-still), so less smoothing.
  *   sp_limit:  setpoints within +-15 mm: the ball is seen over +-42 mm only. */
-void rx_cfg_beam_direct(rx_cfg_t *c, float theta_max, float theta_fb_pos, float reversal_s)
+void rx_cfg_beam_direct(rx_cfg_t *c, float theta_max, float reversal_s)
 {
     c->theta_max = theta_max;
-    c->theta_fb_pos = theta_fb_pos > theta_max ? theta_fb_pos : 0.0f;
     c->est_tau = 0.04f;
     c->t_delay = 0.02f + 0.02f + 0.04f + reversal_s;
     c->sp_limit = 0.015f;
@@ -97,19 +93,11 @@ void rx_est_predict(rx_est_t *e, const rx_cfg_t *c)
 /* ================================================================== ball and beam
  * Margin toward ONE end of the beam (s = +1 right, -1 left).
  * Worst case assumed: for t_delay the actuator pushes the ball toward that end at full authority,
- * after that braking achieves only brake_eta of the ideal deceleration.
- * Asymmetric authority (theta_fb_pos > theta_max, beam-direct): the push toward an end is the larger of
- * theta_max (any accepted AI command) and the largest command sent that way within the last t_delay
- * (s * u_peak: the actuator cannot be further than that); braking a ball that moves toward -x uses the
- * fallback's theta_fb_pos, braking toward +x uses theta_max. With theta_fb_pos = 0 this is the symmetric
- * model exactly (u_peak never exceeds theta_max then). */
-static float fb_pos(const rx_cfg_t *c) { return c->theta_fb_pos > c->theta_max ? c->theta_fb_pos : c->theta_max; }
-static float beam_margin_side_u(const rx_cfg_t *c, float x, float v, float s, float u_peak)
+ * after that braking achieves only brake_eta of the ideal deceleration. */
+static float beam_margin_side(const rx_cfg_t *c, float x, float v, float s)
 {
-    float push = c->theta_max;
-    if (isfinite(u_peak) && s * u_peak > push) push = s * u_peak;
-    float a_max = c->k_acc * sinf(push);
-    float a_brk = c->brake_eta * c->k_acc * sinf(s > 0 ? c->theta_max : fb_pos(c));
+    float a_max = c->k_acc * sinf(c->theta_max);
+    float a_brk = c->brake_eta * a_max;
     float xs = s * x, vs = s * v;                           /* position / velocity toward this end */
     float xd = xs + vs * c->t_delay + 0.5f * a_max * c->t_delay * c->t_delay;
     float vd = vs + a_max * c->t_delay;
@@ -117,19 +105,16 @@ static float beam_margin_side_u(const rx_cfg_t *c, float x, float v, float s, fl
     if (vd > 0) { float stop = xd + vd * vd / (2.0f * a_brk); if (stop > reach) reach = stop; }
     return (c->half_len - c->edge_margin) - reach;
 }
-static float beam_margin_side(const rx_cfg_t *c, float x, float v, float s) { return beam_margin_side_u(c, x, v, s, 0.0f); }
 
-/* close to a limit: push away from it, full authority (toward +x the fallback may use theta_fb_pos);
- * otherwise PD, clamped to [-theta_max, +theta_fb_pos] */
-static float beam_safe_u_u(const rx_cfg_t *c, float x, float v, float sp, float u_peak)
+static float beam_safe_u(const rx_cfg_t *c, float x, float v, float sp)
 {
-    float r = beam_margin_side_u(c, x, v, 1.0f, u_peak), l = beam_margin_side_u(c, x, v, -1.0f, u_peak);
-    if (r < 0.01f || l < 0.01f)
-        return (r < l) ? -c->theta_max : fb_pos(c);
+    float r = beam_margin_side(c, x, v, 1.0f), l = beam_margin_side(c, x, v, -1.0f);
+    if (r < 0.01f || l < 0.01f)                             /* close to a limit: push away from it, full authority */
+        return (r < l) ? -c->theta_max : c->theta_max;
     float a = c->wn * c->wn * (sp - x) - 2.0f * c->zeta * c->wn * v;
-    return asinf(clampf(a / c->k_acc, -sinf(c->theta_max), sinf(fb_pos(c))));
+    float sm = sinf(c->theta_max);
+    return asinf(clampf(a / c->k_acc, -sm, sm));
 }
-static float beam_safe_u(const rx_cfg_t *c, float x, float v, float sp) { return beam_safe_u_u(c, x, v, sp, 0.0f); }
 
 /* the guardian's one-step lookahead model: ball acceleration for a commanded beam angle */
 static float beam_accel(const rx_cfg_t *c, float x, float v, float u) { (void)x; (void)v; return c->k_acc * sinf(u); }
@@ -142,7 +127,7 @@ static void beam_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt)
     if (n > 20000) n = 20000;
     double h = dt / n;
     double u = isfinite(u_cmd) ? u_cmd : p->theta;   /* a servo fed garbage holds position */
-    if (u > fb_pos(c)) u = fb_pos(c);
+    if (u > c->theta_max) u = c->theta_max;
     if (u < -c->theta_max) u = -c->theta_max;
     for (int i = 0; i < n; i++) {
         double d = u - p->theta, lim = c->slew * h;
@@ -219,30 +204,6 @@ float rx_margin(const rx_cfg_t *c, float x, float v)
 
 float rx_safe_u(const rx_cfg_t *c, float x, float v, float sp) { return rx_plant_ops(c->plant)->safe_u(c, x, v, sp); }
 
-float rx_margin_applied(const rx_cfg_t *c, float x, float v, float u_peak)
-{
-    if (c->plant == RX_PLANT_JOINT) return rx_margin(c, x, v);
-    float r = beam_margin_side_u(c, x, v, 1.0f, u_peak), l = beam_margin_side_u(c, x, v, -1.0f, u_peak);
-    return r < l ? r : l;
-}
-
-float rx_safe_u_applied(const rx_cfg_t *c, float x, float v, float sp, float u_peak)
-{
-    if (c->plant == RX_PLANT_JOINT) return rx_safe_u(c, x, v, sp);
-    return beam_safe_u_u(c, x, v, sp, u_peak);
-}
-
-/* the largest command toward +x within the last t_delay (plus this tick's candidate) */
-static float guard_u_peak(const rx_guard_t *g, const rx_cfg_t *c, float candidate)
-{
-    uint32_t k = (uint32_t)(c->t_delay * c->hz) + 2;
-    if (k > RX_GUARD_UHIST) k = RX_GUARD_UHIST;
-    if (k > g->u_n) k = g->u_n;
-    float pk = isfinite(candidate) ? candidate : 0.0f;
-    for (uint32_t i = 0; i < k; i++) { float u = g->u_hist[(g->u_n - 1 - i) % RX_GUARD_UHIST]; if (u > pk) pk = u; }
-    return pk;
-}
-
 void rx_plant_step(rx_plant_t *p, const rx_cfg_t *c, float u_cmd, double dt) { rx_plant_ops(c->plant)->step(p, c, u_cmd, dt); }
 
 void rx_guard_init(rx_guard_t *g)
@@ -258,8 +219,7 @@ void rx_guard_step(rx_guard_t *g, const rx_cfg_t *c, float x, float v, float sp,
     sp = clampf(sp, -c->sp_limit, c->sp_limit);
     out->intervened = 0;
     out->want_restart = 0;
-    const float u_peak = guard_u_peak(g, c, 0.0f);          /* largest recent command toward +x */
-    out->margin = rx_margin_applied(c, x, v, u_peak);
+    out->margin = rx_margin(c, x, v);
 
     if (!in->guard_enabled) {                     /* demonstration only: what happens without Reflex */
         float u = g->u_last;
@@ -267,7 +227,6 @@ void rx_guard_step(rx_guard_t *g, const rx_cfg_t *c, float x, float v, float sp,
             u = clampf(in->u_ai, -c->theta_max, c->theta_max);
         g->mode = RX_MODE_BYPASS; g->reason = RX_R_NONE; g->hold_left = 0;
         g->u_last = out->u_out = u;
-        g->u_hist[g->u_n++ % RX_GUARD_UHIST] = u;
         return;
     }
     if (g->mode == RX_MODE_BYPASS) { g->mode = RX_MODE_SAFE; g->hold_left = (uint32_t)(c->hold_s * c->hz); }
@@ -288,7 +247,7 @@ void rx_guard_step(rx_guard_t *g, const rx_cfg_t *c, float x, float v, float sp,
         float a = rx_plant_ops(c->plant)->accel(c, x, v, in->u_ai);
         float v1 = v + a * h;
         float x1 = x + v * h + 0.5f * a * h * h;
-        if (rx_margin_applied(c, x1, v1, guard_u_peak(g, c, in->u_ai)) <= 0.0f) verdict = RX_R_ENVELOPE;
+        if (rx_margin(c, x1, v1) <= 0.0f)            verdict = RX_R_ENVELOPE;
     }
 
     /* 2. mode logic */
@@ -313,9 +272,8 @@ void rx_guard_step(rx_guard_t *g, const rx_cfg_t *c, float x, float v, float sp,
     }
 
     /* 3. choose the command */
-    out->u_out = (g->mode == RX_MODE_AI) ? in->u_ai : rx_safe_u_applied(c, x, v, sp, u_peak);
+    out->u_out = (g->mode == RX_MODE_AI) ? in->u_ai : rx_safe_u(c, x, v, sp);
     g->u_last = out->u_out;
-    g->u_hist[g->u_n++ % RX_GUARD_UHIST] = out->u_out;
 }
 
 #include "policy_weights.h"

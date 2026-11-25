@@ -61,10 +61,6 @@ Otherwise the guardian switches to SAFE. The fallback controller pushes away fro
 
 Rule 5 is what makes this more than a watchdog. A stuck or sign-inverted output is a perfectly valid number, on time, in range. It is only caught because the guardian reasons about where the command leads.
 
-### Asymmetric actuator authority (beam-direct rig)
-
-On the beam-direct rig the servo can lower the servo end 2.6 deg below level but lift it only 1.1 deg above it (a linkage limit, `results/2026-11-24-beam-direct/step2-range-2`), and the felt ball needs about 1.9-2.6 deg to start rolling (`step4-breakaway`). `theta_max` (the AI's range, both ways) stays the smaller side. `theta_fb_pos` lets the **fallback alone** use the larger side toward +x. The margin then has to assume that push: `rx_margin_applied()` takes the largest command toward +x in the last `t_delay` (the guard keeps a fixed ring of its recent commands), braking toward -x uses the fallback's larger authority, and `t_delay` includes a full swing from +`theta_fb_pos` to -`theta_max` at the backend's slew limit. With `theta_fb_pos = 0` every result is bit-identical to the symmetric kernel (`rx_simtest` output compared before and after). `rx_simtest` checks the rig's numbers with a Monte Carlo of the recoverable set in which the fallback sees the ball 2 ticks late through the estimator, with plant errors of +-20 %: no recoverable state enters the keep-out strip; with the push peak ignored the same test finds 225 that do.
-
 ## Learning under the guardian
 
 `reflex-pilot --learn` flies a 3-12-1 tanh network whose weights are improved online with an antithetic evolution strategy (`src/core/rx_learner.c`). One episode is one setpoint segment. Two consecutive episodes fly `mean + sigma*eps` and `mean - sigma*eps`; the difference of their costs gives a gradient estimate along `eps`. The cost is squared tracking error plus a heavy charge for every tick the guardian had to be in control, which the guardian reports to the pilot in each reply. The best weights seen are kept and restored if learning diverges.

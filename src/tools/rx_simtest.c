@@ -265,101 +265,6 @@ static int guest_test(void)
     return bad;
 }
 
-/* Beam-direct rig (asymmetric servo authority): the AI gets theta_max both ways, the fallback alone may use
- * theta_fb_pos toward +x, and the margin assumes the largest command of the last t_delay for the push.
- * The Monte Carlo below is sharp enough to need that: with the push peak ignored it finds 7 / 139 / 79 states
- * that enter the keep-out strip (checked 2026-11-25), with it none.
- * Numbers of the rig (results/2026-11-24-beam-direct): 19.2 / 46.6 mrad, 9.88 us/mrad, 60 us per tick slew,
- * half length 42 mm, 50 Hz. */
-static void bd_cfg(rx_cfg_t *c)
-{
-    rx_cfg_default(c, 50.0f); rx_cfg_hardware(c);
-    c->half_len = 0.042f;
-    const float th = 0.0192f, fb = 0.0466f, slew_rad_s = 60.0f / 9.88f / 1000.0f / 0.02f;
-    rx_cfg_beam_direct(c, th, fb, (fb + th) / slew_rad_s);
-    c->slew = slew_rad_s;
-}
-static float hist_peak(const float *h, int n, int k)
-{
-    float pk = 0; for (int i = 0; i < k && i < n; i++) if (h[(n - 1 - i) % 64] > pk) pk = h[(n - 1 - i) % 64];
-    return pk;
-}
-static int beam_direct_test(void)
-{
-    printf("== beam-direct: asymmetric authority (AI +-19.2 mrad, fallback up to +46.6 mrad toward +x) ==\n");
-    rx_cfg_t c; bd_cfg(&c);
-    int bad = 0, K = (int)(c.t_delay * c.hz) + 2;
-    printf("  t_delay %.0f ms, slew %.3f rad/s, theta_max %.1f mrad, theta_fb_pos %.1f mrad\n", c.t_delay * 1e3, c.slew, c.theta_max * 1e3, c.theta_fb_pos * 1e3);
-    /* 1. Monte Carlo: recoverable states (with their command history), one adversary tick, then the fallback */
-    const double ks[3] = { 1.0, 0.8, 1.2 }, ss[3] = { 1.0, 0.8, 1.0 };
-    for (int m = 0; m < 3; m++) {
-        rx_cfg_t world = c; world.k_acc *= (float)ks[m]; world.slew *= (float)ss[m];
-        long n = 0, viol = 0;
-        for (long i = 0; i < 200000; i++) {
-            float fbp = c.theta_fb_pos, th = c.theta_max;
-            rx_plant_t p = { (urand() * 2 - 1) * c.half_len, (urand() * 2 - 1) * 0.15, -th + urand() * (fbp + th) };
-            if (urand() < 0.3) { p.theta = fbp; p.x = urand() * c.half_len; p.v = urand() * 0.15; }   /* the corner: pushing hard toward +x */
-            float pk = (float)(p.theta > 0 ? p.theta : 0); if (urand() < 0.3) pk += (float)urand() * (fbp - pk);
-            if (rx_margin_applied(&c, (float)p.x, (float)p.v, pk) <= 0) continue;
-            n++;
-            float h[64]; int hn = 0; for (int j = 0; j < K; j++) h[hn++ % 64] = pk;
-            float sd = p.v > 0 ? 1.0f : (p.v < 0 ? -1.0f : (p.x >= 0 ? 1.0f : -1.0f));
-            float sp = (float)((urand() * 2 - 1) * c.sp_limit);
-            /* the fallback sees the ball 2 ticks late (sensor 1 tick old + median of 3), through the estimator */
-            double dx[3] = { p.x, p.x, p.x };
-            rx_est_t e = { (float)p.x, (float)p.v, 1 };
-            float ua = sd * th; rx_plant_step(&p, &world, ua, c.dt); h[hn++ % 64] = ua;   /* the adversary's last tick */
-            int b = 0;
-            for (int k = 0; k < (int)(4 * c.hz) && !b; k++) {
-                dx[k % 3] = p.x;
-                rx_est_update(&e, &c, (float)dx[(k + 1) % 3]);                             /* 2 ticks old */
-                float u = rx_safe_u_applied(&c, e.x, e.v, sp, hist_peak(h, hn, K));
-                rx_plant_step(&p, &world, u, c.dt); h[hn++ % 64] = u;
-                if (fabs(p.x) > c.half_len - c.edge_margin) b = 1;
-            }
-            viol += b;
-        }
-        printf("  envelope Monte Carlo, k_acc x%.1f slew x%.1f: %ld recoverable states, %ld entered the keep-out strip\n", ks[m], ss[m], n, viol);
-        if (viol) bad = 1;
-    }
-    /* 2. hostile AI under the guard: random and stuck commands in its range, random setpoints, 20 minutes */
-    {
-        rx_plant_t p = { 0, 0, 0 }; rx_est_t e = { 0 }; rx_guard_t g; rx_guard_init(&g);
-        double worst = 1e9; int fb_used = 0; float u_ai = 0;
-        for (long k = 0; k < (long)(1200 * c.hz); k++) {
-            float sp = (float)(((k / (long)(5 * c.hz)) % 3 - 1) * c.sp_limit);
-            rx_est_update(&e, &c, (float)(p.x + 0.0001 * nrand()));
-            long ph = (k / (long)(2 * c.hz)) % 4;
-            if (ph == 0) u_ai = (float)((urand() * 2 - 1) * c.theta_max);
-            else if (ph == 1) u_ai = c.theta_max; else if (ph == 2) u_ai = -c.theta_max;
-            else u_ai = rx_safe_u(&c, e.x, e.v, sp);
-            rx_guard_in_t in = { 1, 1, 1, 1, u_ai }; rx_guard_out_t o;
-            rx_guard_step(&g, &c, e.x, e.v, sp, &in, &o);
-            if (o.u_out > c.theta_max * 1.001f) fb_used++;
-            rx_plant_step(&p, &c, o.u_out, c.dt);
-            double edge = c.half_len - c.edge_margin - fabs(p.x); if (edge < worst) worst = edge;
-        }
-        printf("  hostile AI under the guard, 20 min: closest to the keep-out strip %.1f mm, fallback used > theta_max on %d ticks\n", worst * 1e3, fb_used);
-        if (worst < 0) bad = 1;
-    }
-    /* 3. from near the hinge end at rest, fallback only: off the end with the extra authority, settle at 0 */
-    {
-        rx_plant_t p = { -0.030, 0, 0 }; rx_est_t e = { 0 }; rx_guard_t g; rx_guard_init(&g);
-        double worst = 1e9; int fb_used = 0;
-        for (int k = 0; k < (int)(15 * c.hz); k++) {
-            rx_est_update(&e, &c, (float)p.x);
-            rx_guard_in_t in = { 1, 0, 0, 1, 0 }; rx_guard_out_t o;
-            rx_guard_step(&g, &c, e.x, e.v, 0.0f, &in, &o);
-            if (o.u_out > c.theta_max * 1.001f) fb_used++;
-            rx_plant_step(&p, &c, o.u_out, c.dt);
-            double edge = c.half_len - c.edge_margin - fabs(p.x); if (edge < worst) worst = edge;
-        }
-        printf("  from x = -30 mm at rest: after 15 s x = %+.1f mm, closest to the strip %.1f mm, extra authority on %d ticks\n", p.x * 1e3, worst * 1e3, fb_used);
-        if (worst < 0 || fabs(p.x) > 0.003) bad = 1;
-    }
-    return bad;
-}
-
 /* Ultrasonic ball filter (beam-direct): a ball swinging +-40 mm at 0.3 Hz seen at 50 Hz with 0.3 mm noise,
  * 5 % dropouts, 3 % spikes (the room at 625 mm, a ghost at 167 mm, as on the rig in step3-ballmap-2), and a
  * 0.5 s stretch out of sight while it moves. No spike may get through; the position must track; the ball must
@@ -512,7 +417,6 @@ int main(void)
     printf("\n== guest supervision (pilot over UDP): restart limiter, simulated time ==\n");
     if (guest_test()) fail = 1;
     if (sonar_test()) fail = 1;
-    if (beam_direct_test()) fail = 1;
 
     printf("\n%s\n", fail ? "SIMTEST FAILED" : "SIMTEST PASSED");
     return fail;
