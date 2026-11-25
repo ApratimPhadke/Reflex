@@ -31,6 +31,27 @@ body.present #badge{font-size:46px;padding:12px 40px;border-width:4px}
 body.present main{grid-template-columns:1fr;max-width:none;padding:18px 28px}
 body.present #caption{font-size:38px;padding:20px 26px}body.present #banner{font-size:24px}
 body.present #bigstats{display:grid}body.present .chip{font-size:16px}
+/* beam-direct: one screen, no scrolling. Left: rig + controls + diagnostics; right: 2 x 2 graphs that fill the rest */
+#bdlayout{display:none}
+body.bd{height:100vh;overflow:hidden}
+body.bd main{display:none}
+body.bd header{padding:6px 14px;gap:10px}body.bd h1{font-size:16px}body.bd #badge{font-size:15px;padding:4px 14px}
+body.bd #bdlayout{display:grid;grid-template-columns:minmax(360px,31%) 1fr 1fr;grid-template-rows:auto 1fr 1fr;gap:8px;padding:8px 10px;height:calc(100vh - 46px)}
+#bdbanner{grid-column:1/-1}#bdbanner #banner{margin:0;padding:6px 12px;font-size:13px}
+#bdleft{grid-row:2/4;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden}
+body.bd .card{padding:8px 10px}body.bd .card h2{margin:0 0 4px;font-size:11px}
+body.bd #bdleft .card:first-child{flex:0 0 auto}
+.gcell{display:flex;flex-direction:column;min-height:0;min-width:0}
+.gwrap{position:relative;flex:1 1 auto;min-height:0}
+.gwrap canvas{position:absolute;inset:0;width:100%;height:100%}
+body.bd .legend{margin-top:3px;gap:8px;font-size:11px}
+body.bd .btns{gap:5px}body.bd button{padding:5px 6px;font-size:12px}body.bd button small{display:none}
+body.bd #bdcard{margin:0!important;flex:1 1 auto;min-height:0;overflow:hidden;font-size:12px}
+body.bd #bdcard .kv{grid-template-columns:auto 1fr auto 1fr;gap:1px 8px;font-size:11.5px}
+body.bd #bdhelp{display:none}
+body.bd #bdstats{margin-top:6px!important;font-size:11.5px!important}
+#bdleft .rigwrap{height:22vh;min-height:130px;flex:none}
+body.bd #bdev{font-size:11px;color:var(--dim);margin-top:6px;max-height:84px;overflow:hidden}
 </style></head><body>
 <header><h1>REFLEX<small>runtime assurance for physical AI on QNX</small></h1><span class="chip" id="cbackend">backend</span><span class="chip" id="clink" style="display:none"></span><span class="chip" id="ccal" style="display:none"></span><span class="chip" id="cguest" style="display:none"></span><div id="badge">connecting</div></header>
 <main>
@@ -39,7 +60,7 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
 <div id="bigstats"><div><b id="bs0">-</b><span id="bl0">balls lost</span></div><div><b id="bs1">-</b><span>guardian take-overs</span></div><div><b id="bs2">-</b><span>worst wake-up latency</span></div><div><b id="bs3">-</b><span>control rate</span></div></div>
 <div>
   <div class="card" id="bdcard" style="display:none;margin-bottom:14px"><h2>Beam-direct rig: place the ball</h2>
-    <div style="font-size:13px;color:var(--dim);margin-bottom:8px"><b style="color:var(--ink)">Click on the beam</b> where the ball should be: that target is armed at once (blue line). With no ball the guardian waits with the beam level; <b style="color:var(--ink)">put the ball on the beam</b> and it is balanced at the target. The tilt buttons / arrow keys hold the beam by hand (guardian paused); <b style="color:var(--ink)">Enter</b> re-arms the target, <b style="color:var(--ink)">Space</b> = level hold.</div>
+    <div id="bdhelp" style="font-size:13px;color:var(--dim);margin-bottom:8px"><b style="color:var(--ink)">Click on the beam</b> where the ball should be: that target is armed at once (blue line). With no ball the guardian waits with the beam level; <b style="color:var(--ink)">put the ball on the beam</b> and it is balanced at the target. The tilt buttons / arrow keys hold the beam by hand (guardian paused); <b style="color:var(--ink)">Enter</b> re-arms the target, <b style="color:var(--ink)">Space</b> = level hold.</div>
     <div class="btns" style="grid-template-columns:repeat(5,1fr)">
       <button onclick="tiltBy(-5)"><b>&larr; sensor</b><small>tilt 5 mrad</small></button>
       <button onclick="holdAt(0)"><b>Level</b><small>hold level</small></button>
@@ -60,7 +81,7 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
       <button onclick="cmd('gains '+$('wn').value+' '+$('ze').value)"><b>Apply gains</b><small id="gcur">now -</small></button>
       <button onclick="$('wn').value=2.5;$('ze').value=1;$('wnv').textContent='2.5';$('zev').textContent='1.00';cmd('gains 2.5 1.0')"><b>Default</b><small>2.5 / 1.0</small></button>
     </div>
-    <div style="font-size:12px;color:var(--dim);margin-top:4px">Gains only change how hard the fallback steers to the target; the guardian's safety margins and its full-tilt catch near the ends do not use them.</div>
+    <div id="bdgnote" style="font-size:12px;color:var(--dim);margin-top:4px">Gains only change how hard the fallback steers to the target; the guardian's safety margins and its full-tilt catch near the ends do not use them.</div>
     <div class="btns" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
       <button id="pausebtn" onclick="paused=!paused;this.classList.toggle('on',paused);this.querySelector('b').textContent=paused?'Resume graphs':'Pause graphs'"><b>Pause graphs</b><small>freeze to inspect</small></button>
       <button id="winbtn" onclick="win=win===500?3000:500;this.querySelector('b').textContent='Window '+(win/50)+' s'"><b>Window 10 s</b><small>10 s / 60 s</small></button>
@@ -69,6 +90,7 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
     </div>
     <div id="bdstats" style="margin-top:10px;font-size:13px;color:var(--dim)"></div>
     <div class="kv" id="bdkv" style="margin-top:10px"></div>
+    <div id="bdev"></div>
   </div>
   <div class="card"><h2>Plant</h2><canvas id="beam" height="210" style="cursor:crosshair"></canvas></div>
   <div id="bdgraphs" style="display:none">
@@ -113,6 +135,14 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
     </div></div>
 </div>
 </main>
+<div id="bdlayout">
+  <div id="bdbanner"></div>
+  <div id="bdleft"></div>
+  <div class="card gcell" id="cell_pos"></div>
+  <div class="card gcell" id="cell_tilt"></div>
+  <div class="card gcell" id="cell_pow"></div>
+  <div class="card gcell" id="cell_mpu"></div>
+</div>
 <script>
 const $=id=>document.getElementById(id);let S=null;
 function cmd(c){fetch('/api/cmd?'+encodeURIComponent(c)).catch(()=>{})}
@@ -128,7 +158,7 @@ function armText(){if(armedX===null||!isBD())return;const B=S.beam,mm=Math.round
  $('pend').textContent=B.hold?'armed '+mm+' mm - beam held by hand':!seen?'armed '+mm+' mm - waiting for the ball':'balancing at '+mm+' mm (error '+err.toFixed(0)+' mm)'}
 document.addEventListener('keydown',e=>{if(!isBD())return;if(e.key==='Enter'){e.preventDefault();go()}else if(e.key===' '){e.preventDefault();holdAt(0)}else if(e.key==='ArrowRight')tiltBy(2);else if(e.key==='ArrowLeft')tiltBy(-2)});
 document.addEventListener('DOMContentLoaded',()=>{});
-setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,h=chH(c),G=bdGeom(w,h);
+setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,h=cH(c),G=bdGeom(w,h);
  const px=ev.clientX-rc.left,py=ev.clientY-rc.top,d=((px-G.hx)*Math.cos(G.a)+(py-G.hy)*Math.sin(G.a))/G.k;   /* along the beam, mm */
  let x=(d-BD.ball/2-BD.centre)/1000;const clamped=Math.abs(x)>S.sp_limit;x=Math.max(-S.sp_limit,Math.min(S.sp_limit,x));pendX=x;
  go();if(clamped)$('pend').textContent='nearest allowed target';drawBeam()})},0);
@@ -150,7 +180,17 @@ function chart(id,ser,lo,hi,opt){const[g,w,h]=fit($(id));opt=opt||{};const n=win
   if(sr.dots){for(let i=0;i<m;i++){const v=d[d.length-1-i];if(v===null||v===undefined||isNaN(v))continue;const y=Y(Math.max(a,Math.min(b,v)),a,b);g.fillRect(X(i)-1,y-1,2,2)}continue}
   g.beginPath();let pen=false;for(let i=0;i<m;i++){const v=d[d.length-1-i];if(v===null||v===undefined||isNaN(v)){pen=false;continue}const y=Y(Math.max(a,Math.min(b,v)),a,b);if(pen)g.lineTo(X(i),y);else g.moveTo(X(i),y);pen=true}g.stroke()}
  if(opt.y2label){g.fillStyle='#d29922';g.fillText(opt.y2label,w-60,10)}}
-function bdGraphs(){const show=isBD();$('bdgraphs').style.display=show?'block':'none';if(!show||paused)return;const B=S.beam,t=a=>B.servo_dir*(a-B.level)/B.us_per_mrad;
+let bdLaid=false;
+function bdLayout(){if(bdLaid||!isBD())return;bdLaid=true;document.body.classList.add('bd');
+ $('bdbanner').appendChild($('banner'));
+ const rig=$('beam').parentElement;rig.style.margin='0';const wr=document.createElement('div');wr.className='gwrap rigwrap';rig.appendChild(wr);wr.appendChild($('beam'));
+ $('bdleft').appendChild(rig);$('bdleft').appendChild($('bdcard'));$('bdgnote').style.display='none';
+ const cards=[...$('bdgraphs').querySelectorAll('.card')];const cells=['cell_pos','cell_tilt','cell_pow','cell_mpu'];
+ cards.forEach((cd,i)=>{const cell=$(cells[i]);const h2=cd.querySelector('h2'),cv=cd.querySelector('canvas'),lg=cd.querySelector('.legend');
+  cell.appendChild(h2);const w=document.createElement('div');w.className='gwrap';cell.appendChild(w);w.appendChild(cv);if(lg)cell.appendChild(lg)});
+ $('bdgraphs').remove()}
+function bdEvents(){if(!isBD())return;$('bdev').innerHTML=S.events.slice(-5).reverse().map(e=>'<div>'+e[0].toFixed(1)+' s ago &nbsp;<span style="color:var(--ink)">'+e[1]+'</span></div>').join('')}
+function bdGraphs(){const show=isBD();if(!show||paused)return;const B=S.beam,t=a=>B.servo_dir*(a-B.level)/B.us_per_mrad;
  const raw=HB.map(e=>e[1]>0&&e[1]<300?e[1]:null),fi=HB.map(e=>e[2]),est=HR.map(r=>r[8]?null:88+r[1]*1000),spv=HR.map(r=>88+r[2]*1000);
  chart('g_pos',[{d:raw,col:'#8b949e',dots:true},{d:fi,col:'#e6edf3',lw:1.6},{d:est,col:'#58a6ff',lw:1.2},{d:spv,col:'#d29922',lw:1.2}],30,220,
   {bands:[{lo:46,hi:130,col:'#3fb95018'}],grid:[46,88,130,200],shade:{d:HB,f:e=>e[8]?null:'#f8514918'}});
@@ -167,18 +207,19 @@ function bdGraphs(){const show=isBD();$('bdgraphs').style.display=show?'block':'
  $('gcur').textContent='now '+(S.wn||0).toFixed(1)+' / '+(S.zeta||0).toFixed(2)}
 function bdPanel(){const card=$('bdcard');if(!isBD()){card.style.display='none';return}card.style.display='block';const B=S.beam,r=S.recs.length?S.recs[S.recs.length-1]:null;
  const tilt=B.servo_dir*(B.applied-B.level)/B.us_per_mrad,f=(v,d,u)=>v===null||v===undefined?'-':v.toFixed(d)+(u||'');
- const rows=[['Beam', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">HELD at '+B.hold_mrad.toFixed(1)+' mrad</b> (guardian paused)':'guardian '+S.mode.toLowerCase()],
-  ['Ball (filtered) / raw echo',f(B.filt,1,' mm')+' / '+f(B.raw,1,' mm')],['Sensor sees the ball',f(B.hit,0,' % of pings')],
-  ['Ball x / velocity',r?(r[1]===null?'lost':(r[1]*1000).toFixed(1)+' mm'):'-'],['Setpoint',r?(r[2]*1000).toFixed(0)+' mm':'-'],
-  ['Beam tilt (servo)',tilt.toFixed(1)+' mrad = '+(tilt*0.0573).toFixed(2)+' deg (+ = ball to the servo end)'],['Guardian command',r?(r[4]*1000).toFixed(1)+' mrad':'-'],
-  ['Servo pulse target / applied',B.target+' / '+B.applied+' us'],['Servo current',f(B.amp,0,' mA')],['Servo supply',f(B.volt,2,' V')],['MPU tilt (raw)',f(B.tilt,2,' deg')]];
+ const rows=[['State', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">held '+B.hold_mrad.toFixed(1)+' mrad</b>':'guardian '+S.mode.toLowerCase()],
+  ['Ball filt / raw',f(B.filt,0,'')+' / '+f(B.raw,0,' mm')],['Sensor hits',f(B.hit,0,' %')],
+  ['Ball x',r?(r[8]?'lost':(r[1]*1000).toFixed(1)+' mm'):'-'],['Setpoint',r?(88+r[2]*1000).toFixed(0)+' mm from sensor':'-'],
+  ['Servo tilt',tilt.toFixed(1)+' mrad ('+(tilt*0.0573).toFixed(2)+'&deg;)'],['Command',r?(r[4]*1000).toFixed(1)+' mrad':'-'],
+  ['Pulse tgt / out',B.target+' / '+B.applied+' us'],['Current',f(B.amp,0,' mA')],['Supply',f(B.volt,2,' V')],['MPU (raw)',f(B.tilt,2,'&deg;')]];
  $('bdkv').innerHTML=rows.map(r=>'<span>'+r[0]+'</span><span>'+r[1]+'</span>').join('')}
 function toggleGuard(){cmd('guard '+(S&&S.guard?'off':'on'))}
 /* The logical (CSS) height lives in data-h; the canvas's own height attribute is the pixel height and is set
  * from it. (Reading the attribute back as the logical height made every canvas grow by devicePixelRatio per
  * frame on a scaled screen.) */
 function chH(c){if(!c.dataset.h)c.dataset.h=c.getAttribute('height');return +c.dataset.h}
-function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=chH(c);c.style.height=h+'px';
+function cH(c){return c.closest('.gwrap')?c.clientHeight:chH(c)}
+function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=cH(c);if(!c.closest('.gwrap'))c.style.height=h+'px';
  const pw=Math.round(w*r),ph=Math.round(h*r);if(c.width!==pw||c.height!==ph){c.width=pw;c.height=ph}
  const g=c.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return[g,w,h]}
 const MC={AI:'#58a6ff',SAFE:'#3fb950',BYPASS:'#f85149'};
@@ -195,17 +236,17 @@ function drawJoint(){const[g,w,h]=fit($('beam'));const r=S.recs[S.recs.length-1]
  * Distances are from the sensor face to the ball's near surface (what the HC-SR04 reads); x = d - 88 mm. */
 const BD={len:210,ball:65,centre:88,seen:[46,130]};
 function bdGeom(w,h){const tilt=S.beam.servo_dir*(S.beam.applied-S.beam.level)/S.beam.us_per_mrad/1000;   /* rad, + = servo end down */
- return{hx:w*0.09,hy:h*0.5,k:(w*0.80)/BD.len,a:tilt*8,tilt}}
+ return{hx:w*0.10,hy:h*0.62,k:Math.min((w*0.80)/BD.len,(h*0.36)/BD.ball),a:tilt*8,tilt}}
 function bdPt(G,d,up){const c=Math.cos(G.a),s=Math.sin(G.a);return[G.hx+d*G.k*c+up*s,G.hy+d*G.k*s-up*c]}
 function drawBeamDirect(){const[g,w,h]=fit($('beam'));const r=S.recs.length?S.recs[S.recs.length-1]:null,G=bdGeom(w,h),B=S.beam;
  const p0=bdPt(G,0,0),p1=bdPt(G,BD.len,0);
  g.lineCap='round';
  /* servo + link at the right end */
  const ls=bdPt(G,BD.len-8,0);g.fillStyle='#2a313c';g.fillRect(ls[0]-26,h*0.82,52,26);g.strokeStyle='#8b949e';g.lineWidth=3;g.beginPath();g.moveTo(ls[0],h*0.82);g.lineTo(ls[0],ls[1]+4);g.stroke();
- g.fillStyle='#8b949e';g.font='11px system-ui';g.fillText('servo '+B.applied+' us',ls[0]-34,h*0.82+40>h?h-2:h*0.82+40);
+ g.fillStyle='#8b949e';g.font='11px system-ui';g.fillText('servo '+B.applied+' us',Math.min(ls[0]-30,w-90),h*0.82-4);
  /* hinge + sensor at the left end */
  g.fillStyle='#2a313c';g.beginPath();g.moveTo(p0[0]-14,h*0.88);g.lineTo(p0[0]+14,h*0.88);g.lineTo(p0[0],p0[1]+3);g.fill();
- g.fillStyle='#58a6ff';g.fillRect(p0[0]-30,p0[1]-26,16,22);g.fillStyle='#8b949e';g.fillText('HC-SR04',p0[0]-44,p0[1]-32);
+ g.fillStyle='#58a6ff';g.fillRect(p0[0]-30,p0[1]-26,16,22);g.fillStyle='#8b949e';g.fillText('HC-SR04',Math.max(2,p0[0]-44),p0[1]-32);
  /* beam, well-seen zone, setpoint, pending target */
  g.strokeStyle='#8b949e';g.lineWidth=7;g.beginPath();g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.stroke();
  const z0=bdPt(G,BD.seen[0],0),z1=bdPt(G,BD.seen[1],0);g.strokeStyle='#3fb95055';g.lineWidth=7;g.beginPath();g.moveTo(z0[0],z0[1]);g.lineTo(z1[0],z1[1]);g.stroke();
@@ -236,7 +277,7 @@ function series(id,lines,lo,hi,shade){const[g,w,h]=fit($(id));if(!S||S.recs.leng
  for(const[k,col,lw]of lines){g.strokeStyle=col;g.lineWidth=lw;g.beginPath();let pen=false;for(let i=0;i<n;i++){let v=R[i][k];if(v===null){pen=false;continue}v=Math.max(lo,Math.min(hi,v));if(pen)g.lineTo(X(i),Y(v));else g.moveTo(X(i),Y(v));pen=true}g.stroke()}}
 function drawHist(){const[g,w,h]=fit($('hist'));if(!S)return;const H=S.hist;let a=0,b=H.length-1;while(b>4&&!H[b])b--;b=Math.min(H.length-1,b+1);const m=Math.max(1,...H.map(v=>Math.log1p(v)));const bw=w/(b-a+1);
  g.font='10px system-ui';for(let i=a;i<=b;i++){const v=Math.log1p(H[i])/m*(h-18);g.fillStyle=(1<<i)>5e5/S.hz?'#f85149':'#58a6ff';g.fillRect((i-a)*bw+1,h-16-v,bw-2,v);g.fillStyle='#8b949e';const us=1<<(i+1);if((i-a)%2===0)g.fillText(us>=1000?(us/1000)+'ms':us+'us',(i-a)*bw+1,h-3)}}
-function chips(){const ser=S.backend==='serial';const be=$('cbackend');be.innerHTML='plant <b>'+(ser?(S.node_emulated?'emulated board':'real beam'):(S.plant==='joint'?'simulated robot joint':'simulator'))+'</b>'+(ser&&S.node_board?' ('+S.node_board+')':'');
+function chips(){const ser=S.backend==='serial';const be=$('cbackend');be.innerHTML='plant <b>'+(S.backend==='beam'?'real beam, Pi direct':ser?(S.node_emulated?'emulated board':'real beam'):(S.plant==='joint'?'simulated robot joint':'simulator'))+'</b>'+(S.backend==='beam'?' (HC-SR04, MPU, INA219, servo on GPIO18)':ser&&S.node_board?' ('+S.node_board+')':'');
  const l=$('clink'),c=$('ccal');l.style.display=c.style.display=ser?'inline':'none';
  if(ser){l.innerHTML='I/O link <b>'+(S.node_link?'up':'DOWN')+'</b>';l.className='chip '+(S.node_link?'ok':'bad');c.innerHTML='calibrated <b>'+(S.calibrated_at||'?')+'</b>';c.className='chip'+(S.calibrated_at==='uncalibrated'?' bad':'')}
  const gc=$('cguest'),G=S.guest,udp=S.transport==='udp';gc.style.display=udp?'inline':'none';
@@ -269,6 +310,6 @@ function drawBench(){if(!S||!S.bench)return;const B=S.bench,f=v=>v===null?'-':v;
  [['mean settling time',B.settle,' s'],['worst overshoot',B.over,' mm'],['RMS tracking error',B.rms,' mm']].map(r=>'<tr><td>'+r[0]+'</td><td style="text-align:right"'+better(r[1][0],r[1][1])+'>'+f(r[1][0])+r[2]+'</td><td style="text-align:right"'+better(r[1][1],r[1][0])+'>'+f(r[1][1])+r[2]+'</td></tr>').join('')+
  '<tr><td>guardian interventions</td><td style="text-align:right">'+B.iv[0]+'</td><td style="text-align:right">'+B.iv[1]+'</td></tr><tr><td>steps not settled</td><td style="text-align:right">'+B.unsettled[0]+'</td><td style="text-align:right">'+B.unsettled[1]+'</td></tr></table>'}
 function drawEvents(){if(!S)return;$('ev').innerHTML=S.events.slice().reverse().map(e=>'<div>'+e[0].toFixed(1).padStart(7)+' s ago &nbsp; <span style="color:var(--ink)">'+e[1]+'</span></div>').join('')}
-async function tick(){try{const r=await fetch('/api/state');S=await r.json();merge();kv();bdPanel();armText();bdGraphs();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent=(e instanceof TypeError&&/fetch|network|Failed/i.test(e.message))?'guardian not reachable':'dashboard error: '+e.message;console.error(e)}setTimeout(tick,100)}
+async function tick(){try{const r=await fetch('/api/state');S=await r.json();merge();bdLayout();kv();bdPanel();armText();bdGraphs();bdEvents();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent=(e instanceof TypeError&&/fetch|network|Failed/i.test(e.message))?'guardian not reachable':'dashboard error: '+e.message;console.error(e)}setTimeout(tick,100)}
 tick();
 </script></body></html>
