@@ -93,7 +93,7 @@ function tiltBy(d){if(!isBD())return;const B=S.beam;const now=B.hold?B.hold_mrad
 function go(){if(pendX===null){$('pend').textContent='click the beam first';return}const mm=Math.round(pendX*1000);cmd('sp '+mm);cmd('tilt off');$('pend').textContent='balancing at '+mm+' mm'}
 document.addEventListener('keydown',e=>{if(!isBD())return;if(e.key==='Enter'){e.preventDefault();go()}else if(e.key===' '){e.preventDefault();holdAt(0)}else if(e.key==='ArrowRight')tiltBy(2);else if(e.key==='ArrowLeft')tiltBy(-2)});
 document.addEventListener('DOMContentLoaded',()=>{});
-setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,h=+c.getAttribute('height'),G=bdGeom(w,h);
+setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,h=chH(c),G=bdGeom(w,h);
  const px=ev.clientX-rc.left,py=ev.clientY-rc.top,d=((px-G.hx)*Math.cos(G.a)+(py-G.hy)*Math.sin(G.a))/G.k;   /* along the beam, mm */
  let x=(d-BD.ball/2-BD.centre)/1000;const clamped=Math.abs(x)>S.sp_limit;x=Math.max(-S.sp_limit,Math.min(S.sp_limit,x));pendX=x;
  $('pend').textContent='go to '+Math.round(BD.centre+x*1000)+' mm from the sensor'+(clamped?' (nearest allowed)':'')+' - Enter';drawBeam()})},0);
@@ -106,7 +106,13 @@ function bdPanel(){const card=$('bdcard');if(!isBD()){card.style.display='none';
   ['Servo pulse target / applied',B.target+' / '+B.applied+' us'],['Servo current',f(B.amp,0,' mA')],['Servo supply',f(B.volt,2,' V')],['MPU tilt (raw)',f(B.tilt,2,' deg')]];
  $('bdkv').innerHTML=rows.map(r=>'<span>'+r[0]+'</span><span>'+r[1]+'</span>').join('')}
 function toggleGuard(){cmd('guard '+(S&&S.guard?'off':'on'))}
-function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute('height');if(c.width!==w*r||c.height!==h*r){c.width=w*r;c.height=h*r}const g=c.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return[g,w,h]}
+/* The logical (CSS) height lives in data-h; the canvas's own height attribute is the pixel height and is set
+ * from it. (Reading the attribute back as the logical height made every canvas grow by devicePixelRatio per
+ * frame on a scaled screen.) */
+function chH(c){if(!c.dataset.h)c.dataset.h=c.getAttribute('height');return +c.dataset.h}
+function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=chH(c);c.style.height=h+'px';
+ const pw=Math.round(w*r),ph=Math.round(h*r);if(c.width!==pw||c.height!==ph){c.width=pw;c.height=ph}
+ const g=c.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return[g,w,h]}
 const MC={AI:'#58a6ff',SAFE:'#3fb950',BYPASS:'#f85149'};
 function drawJoint(){const[g,w,h]=fit($('beam'));const r=S.recs[S.recs.length-1],L=S.half_len,E=0.05;
  const x=(r[9]!==null?r[9]:r[1]),cx=w/2,cy=h*0.78,R=Math.min(h*0.62,w*0.3),ang=a=>-Math.PI/2+a;
@@ -171,7 +177,7 @@ function chips(){const ser=S.backend==='serial';const be=$('cbackend');be.innerH
 function bigstats(){if(!S)return;const iv=Object.values(S.interventions).reduce((a,b)=>a+b,0);$('bs0').textContent=S.balls_lost;
  $('bl0').textContent=S.plant==='joint'?'joint limit hits':'balls lost';$('bs0').style.color=S.balls_lost?'var(--bad)':'var(--safe)';
  $('bs1').textContent=iv;$('bs2').textContent=S.lat_max_us.toFixed(0)+' us';$('bs3').textContent=S.hz+' Hz'}
-function setPresent(on){document.body.classList.toggle('present',on);$('beam').setAttribute('height',on?380:210);$('pos').setAttribute('height',on?220:170)}
+function setPresent(on){document.body.classList.toggle('present',on);$('beam').dataset.h=on?380:210;$('pos').dataset.h=on?220:170}
 setPresent(/[?&]present/.test(location.search));
 document.addEventListener('keydown',e=>{if(e.key==='p'||e.key==='P')setPresent(!document.body.classList.contains('present'))});
 function kv(){if(!S)return;chips();bigstats();const iv=Object.entries(S.interventions).filter(e=>e[1]).map(e=>e[0]+' '+e[1]).join(', ')||'none';
