@@ -432,6 +432,7 @@ int main(int argc, char **argv)
     rx_proposal_t prop, last_prop;
     memset(&prop, 0, sizeof prop); memset(&last_prop, 0, sizeof last_prop);
     int have_prop = 0, sensor_ok = 1, estop_on = 0;
+    int st_state = 0, st_ticks = 0, st_still = 0, st_left = 0; float st_u = 0, st_sp = 0;   /* beam-direct settle */
     pid_t pilot = 0;
     int spawn_pending = 0;
     uint32_t seq = 0, last_prop_tick = 0, pilot_started_tick = 0, respawn_at = 0;
@@ -502,6 +503,36 @@ int main(int argc, char **argv)
         rx_guard_out_t out;
         rx_guard_step(&g, &cfg, est.x, est.v, sp_m, &in, &out);
         if (!ok_now) out.u_out = P->u_eq(&cfg, est.x);               /* nothing measured: hold (beam: level) */
+        /* beam-direct settle (outside the kernel, fallback only): once the ball has sat within SETTLE_IN of the
+         * setpoint, nearly still, for a second, hold the servo where it is (no hunting, no current); resume on any
+         * disturbance. A ball that friction holds off target and still is nudged: a short pulse at the kernel's own
+         * theta_max toward the setpoint. Both are commands the kernel already allows (|u| <= theta_max), and both
+         * give way at once when the margin gets small, the setpoint moves, or anything else takes over. */
+        if (beam) {
+            const float sp_c = sp_m > cfg.sp_limit ? cfg.sp_limit : (sp_m < -cfg.sp_limit ? -cfg.sp_limit : sp_m);
+            const float err = est.x - sp_c, av = fabsf(est.v);
+            int eligible = ok_now && g.mode == RX_MODE_SAFE && out.margin > 0.015f && !atomic_load(&shm->beam_hold) && !estop_on;
+            if (!eligible || sp_c != st_sp) { if (st_state == 1 || st_state == 2) rx_event_push(shm, seq, RX_E_SETTLE, 0); st_state = 0; st_ticks = st_still = 0; }
+            st_sp = sp_c;
+            if (eligible) {
+                if (st_state == 0) {
+                    st_ticks = (fabsf(err) < 0.004f && av < 0.005f) ? st_ticks + 1 : 0;
+                    st_still = (fabsf(err) >= 0.004f && av < 0.003f) ? st_still + 1 : 0;
+                    if (st_ticks >= (int)cfg.hz) { st_state = 1; st_u = out.u_out; rx_event_push(shm, seq, RX_E_SETTLE, 1); }
+                    else if (st_still >= (int)(1.5f * cfg.hz)) {
+                        st_state = 2; st_left = (int)(0.16f * cfg.hz); st_still = 0;
+                        st_u = err > 0 ? -cfg.theta_max : cfg.theta_max;          /* toward the setpoint */
+                        atomic_fetch_add(&shm->beam_nudges, 1); rx_event_push(shm, seq, RX_E_SETTLE, 2);
+                    }
+                } else if (st_state == 1) {
+                    if (fabsf(err) > 0.006f || av > 0.015f) { st_state = 0; st_ticks = 0; rx_event_push(shm, seq, RX_E_SETTLE, 0); }
+                    else out.u_out = st_u;
+                } else if (st_state == 2) {
+                    if (--st_left <= 0) { st_state = 0; st_ticks = st_still = 0; } else out.u_out = st_u;
+                }
+            }
+            atomic_store(&shm->beam_settle, (uint32_t)st_state);
+        }
         if (io->estop && io->estop(io)) {                            /* e-stop / actuator trip: beam level, AI stopped */
             out.u_out = P->u_eq(&cfg, est.x);
             if (!estop_on) { estop_on = 1; atomic_store(&shm->force_fallback, 1); }

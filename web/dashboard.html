@@ -207,7 +207,7 @@ function bdGraphs(){const show=isBD();if(!show||paused)return;const B=S.beam,t=a
  $('gcur').textContent='now '+(S.wn||0).toFixed(1)+' / '+(S.zeta||0).toFixed(2)}
 function bdPanel(){const card=$('bdcard');if(!isBD()){card.style.display='none';return}card.style.display='block';const B=S.beam,r=S.recs.length?S.recs[S.recs.length-1]:null;
  const tilt=B.servo_dir*(B.applied-B.level)/B.us_per_mrad,f=(v,d,u)=>v===null||v===undefined?'-':v.toFixed(d)+(u||'');
- const rows=[['State', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">held '+B.hold_mrad.toFixed(1)+' mrad</b>':'guardian '+S.mode.toLowerCase()],
+ const rows=[['Balance',S.settle===1?'<b style="color:var(--safe)">BALANCED - servo holds still</b>':S.settle===2?'<b style="color:var(--warn)">nudging a stuck ball</b>':'balancing'+(S.nudges?' ('+S.nudges+' nudges)':'')],['State', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">held '+B.hold_mrad.toFixed(1)+' mrad</b>':'guardian '+S.mode.toLowerCase()],
   ['Ball filt / raw',f(B.filt,0,'')+' / '+f(B.raw,0,' mm')],['Sensor hits',f(B.hit,0,' %')],
   ['Ball x',r?(r[8]?'lost':(r[1]*1000).toFixed(1)+' mm'):'-'],['Setpoint',r?(88+r[2]*1000).toFixed(0)+' mm from sensor':'-'],
   ['Servo tilt',tilt.toFixed(1)+' mrad ('+(tilt*0.0573).toFixed(2)+'&deg;)'],['Command',r?(r[4]*1000).toFixed(1)+' mrad':'-'],
@@ -293,6 +293,7 @@ function kv(){if(!S)return;chips();bigstats();const iv=Object.entries(S.interven
  const rows=[['Mode',S.mode+' ('+S.reason+')'],['Control rate',S.hz+' Hz, '+S.backend],['Wake latency max',(S.lat_max_us).toFixed(1)+' us'],['Late ticks',S.deadline_miss],['Guardian exec max',S.exec_max_us.toFixed(1)+' us'],['Ticks',S.ticks.toLocaleString()],['Interventions',iv],...(S.transport==='udp'?[['Pilot','guest VM, '+S.guest.state+' (last valid '+(S.guest.age_ms<10000?S.guest.age_ms+' ms':(S.guest.age_ms/1000).toFixed(0)+' s')+' ago)'],['Guest restarts / instances',S.guest.restarts+(S.guest.cmd_running?' (restarting)':'')+' / '+S.guest.instances],['Datagrams ok / refused',S.guest.rx_ok.toLocaleString()+' / '+S.guest.refused]]:[['Pilot',S.pilot_present?('pid '+S.pilot_pid):'absent'],['Pilot restarts / kills',S.pilot_restarts+' / '+S.pilot_kills]]),['Injected fault',S.fault],[S.plant==='joint'?'Joint limit hits':'Balls lost',S.balls_lost],['Guardian starts',S.guardian_starts]];
  $('kv').innerHTML=rows.map(r=>'<span>'+r[0]+'</span><span>'+r[1]+'</span>').join('');
  const b=$('badge');b.textContent=S.mode==='AI'?'AI IN CONTROL':S.mode==='SAFE'?'GUARDIAN IN CONTROL':'GUARDIAN BYPASSED';b.style.color=MC[S.mode];b.style.borderColor=MC[S.mode];
+ if(isBD()&&S.settle===1&&S.mode!=='AI'){b.textContent='BALANCED';b.style.color='#3fb950';b.style.borderColor='#3fb950'}
  const gb=$('guard');gb.textContent=S.guard?'Guardian ON - click to bypass':'Guardian BYPASSED - click to re-enable';gb.className='wide danger'+(S.guard?'':' on');
  const bn=$('banner');let t='';
  if(isBD()&&S.beam.estop){bn.style.display='block';bn.innerHTML='E-STOP is latched (the button was pressed): the beam is held level and the guardian is paused. <button onclick="cmd(\'release\')" style="margin-left:10px">Release e-stop</button>';return}

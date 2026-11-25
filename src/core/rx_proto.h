@@ -81,7 +81,7 @@ typedef enum {
     /* pilot over UDP (guest supervision, src/core/rx_guest.h) */
     RX_E_GUEST_DOWN, RX_E_GUEST_UP, RX_E_GUEST_RESTART, RX_E_GUEST_QUARANTINE, RX_E_GUEST_CMD_FAILED, RX_E_GUEST_INSTANCE,
     /* beam-direct rig (src/guardian/rx_io_beam.c) */
-    RX_E_ESTOP, RX_E_SERVO_TRIP, RX_E_KICK,
+    RX_E_ESTOP, RX_E_SERVO_TRIP, RX_E_KICK, RX_E_SETTLE,
     RX_E_COUNT
 } rx_evcode_e;
 static const char *const rx_event_name[] = { "?", "guardian started", "guardian took over", "AI back in control",
@@ -96,7 +96,8 @@ static const char *const rx_event_name[] = { "?", "guardian started", "guardian 
     "new pilot instance (arg = its id)",
     "E-STOP: button pressed, beam level, AI stopped (rxctl release)",
     "SERVO TRIP: current above 1.5 A for 3 ticks, servo limp until restart (arg = mA)",
-    "test disturbance over: the beam was held tilted (RX_BEAM_KICK), the guardian has it again" };
+    "test disturbance over: the beam was held tilted (RX_BEAM_KICK), the guardian has it again",
+    "settle (arg 1 = BALANCED: servo holds still, 0 = disturbed: balancing again, 2 = stuck off target: nudge)" };
 _Static_assert(sizeof rx_event_name / sizeof rx_event_name[0] == RX_E_COUNT, "event names out of step");
 typedef struct { uint64_t t_ns; uint32_t seq; uint16_t code; int32_t arg; } rx_event_t;
 
@@ -207,6 +208,8 @@ typedef struct {
     /* operator gains for the fallback controller's PD ("gains <wn> <zeta>"): how hard it steers to the setpoint.
      * The margins and the near-limit full-authority branch do not use them. */
     float cmd_wn, cmd_zeta, cur_wn, cur_zeta;
+    _Atomic uint32_t beam_settle;          /* 0 balancing, 1 BALANCED (servo held still), 2 nudging a stuck ball */
+    _Atomic uint32_t beam_nudges;
     _Atomic uint32_t cmd_gains;
 } rx_shm_t;
 

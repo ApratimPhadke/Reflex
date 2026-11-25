@@ -99,7 +99,8 @@ static size_t build_state(void)
     ADD(",\"applied\":%u,\"target\":%u,\"estop\":%u,\"trip\":%u,\"level\":%u,\"servo_dir\":%d,\"hold\":%u,\"hold_mrad\":%.1f},",
         atomic_load(&shm->beam_applied_us), atomic_load(&shm->beam_target_us), atomic_load(&shm->beam_estop), atomic_load(&shm->beam_trip),
         atomic_load(&shm->beam_level_us), atomic_load(&shm->beam_servo_dir), atomic_load(&shm->beam_hold), atomic_load(&shm->beam_hold_mrad10) * 0.1);
-    ADD("\"edge_margin\":%.3f,\"sp_limit\":%.3f,\"wn\":%.2f,\"zeta\":%.2f,", shm->edge_margin, 0.015, shm->cur_wn, shm->cur_zeta);
+    ADD("\"edge_margin\":%.3f,\"sp_limit\":%.3f,\"wn\":%.2f,\"zeta\":%.2f,\"settle\":%u,\"nudges\":%u,", shm->edge_margin, 0.015, shm->cur_wn, shm->cur_zeta,
+        atomic_load(&shm->beam_settle), atomic_load(&shm->beam_nudges));
     {   /* beam-direct I/O history, last 10 s at most 250 points: [seq,raw,filt,applied,target,mA,V,tilt,acc,hold] */
         ADD("\"bh\":[");
         uint64_t bhh = atomic_load(&shm->beam_head), sp = (uint64_t)(10 * shm->hz);
