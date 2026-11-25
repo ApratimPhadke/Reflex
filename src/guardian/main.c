@@ -52,6 +52,7 @@ typedef struct {
     const char *conf; int uncalibrated, check_conf;
     int pilot_cred; uid_t pilot_uid; gid_t pilot_gid;   /* spawn the pilot with these credentials (QNX) */
     const char *pilot_user;
+    float theta_max;               /* beam-direct: the rig's servo authority, passed to the pilot (0 = its own) */
 } opts_t;
 
 static void usage(void)
@@ -141,13 +142,14 @@ static pid_t spawn_pilot(const opts_t *o, rx_server_t *srv, int chid, float hz)
     snprintf(a_pid, sizeof a_pid, "%d", (int)getpid());
     snprintf(a_chid, sizeof a_chid, "%d", chid);
     snprintf(a_hz, sizeof a_hz, "%.3f", hz);
-    char *argv[12]; int n = 0;
+    char *argv[16]; int n = 0; char a_th[24];
     argv[n++] = (char *)o->pilot_path; argv[n++] = a_pid; argv[n++] = a_chid; argv[n++] = a_hz;
     if (o->hardware) argv[n++] = "--hardware";              /* real rig: fly the hardware-trained weights */
     if (!strcmp(o->plant, "joint")) { argv[n++] = "--plant"; argv[n++] = "joint"; }
     if (o->learn == 1) argv[n++] = "--learn";
     if (o->learn == 2) argv[n++] = "--learn-from-sim";
     if (o->learn) { argv[n++] = "--weights"; argv[n++] = (char *)o->weights; }
+    if (o->theta_max > 0) { snprintf(a_th, sizeof a_th, "%.5f", o->theta_max); argv[n++] = "--theta-max"; argv[n++] = a_th; }
     argv[n] = NULL;
 
     pid_t pid = 0;
@@ -238,7 +240,7 @@ int main(int argc, char **argv)
      * ssh session). Without this, its first diagnostic line raises SIGPIPE and kills it, HAM
      * restarts it, and it dies again: seen on the Pi 4 as ~1700 restarts in a few seconds. */
     signal(SIGPIPE, SIG_IGN);
-    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0, NULL, NULL, 0, 0, 0, 0, 0, NULL };
+    opts_t o = { 0, 50, 10, 0, 0, 0, 0, 0, "sim", "/dev/serusb1", "./reflex-policy.bin", "", 0, NULL, NULL, 0, 0, 0, 0, 0, NULL, 0 };
     {   /* default pilot path: next to our own binary */
         char tmp[512]; snprintf(tmp, sizeof tmp, "%s", argv[0]);
         snprintf(o.pilot_path, sizeof o.pilot_path, "%s/reflex-pilot", dirname(tmp));
@@ -311,6 +313,7 @@ int main(int argc, char **argv)
             if (th > cfg.theta_max) th = cfg.theta_max;
             float reversal = 2.0f * th * 1000.0f * conf.us_per_mrad / (float)RX_BEAM_SLEW_US * cfg.dt;
             rx_cfg_beam_direct(&cfg, th, reversal);
+            o.theta_max = cfg.theta_max;
             fprintf(stderr, "[guardian] beam-direct: theta_max %.1f mrad (%.2f deg) from %d..%d us around %d, t_delay %.0f ms, half_len %.0f mm\n",
                     th * 1e3, th * 57.29578f, conf.servo_min_us, conf.servo_max_us, conf.level_us, cfg.t_delay * 1e3, cfg.half_len * 1e3);
         }

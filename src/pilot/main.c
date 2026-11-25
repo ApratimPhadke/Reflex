@@ -81,7 +81,7 @@ int main(int argc, char **argv)
     if (argc >= 3 && !strcmp(argv[1], "--udp")) { udp_guardian = argv[2]; first = 3; }
     else if (argc < 4) { usage(); return 2; }
     else { gpid = (pid_t)atoi(argv[1]); chid = atoi(argv[2]); hz = (float)atof(argv[3]); }
-    int learn = 0, hardware = 0, joint = 0;
+    int learn = 0, hardware = 0, joint = 0; float theta_override = 0;
     const char *weights = weights_path;
     for (int i = first; i < argc; i++) {
         if (udp_guardian && !strcmp(argv[i], "--bind") && i + 1 < argc) udp_bind = argv[++i];
@@ -91,6 +91,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--plant") && i + 1 < argc) joint = !strcmp(argv[++i], "joint");
         else if (!strcmp(argv[i], "--learn-from-sim")) learn = 2;
         else if (!strcmp(argv[i], "--weights") && i + 1 < argc) weights = argv[++i];
+        else if (!strcmp(argv[i], "--theta-max") && i + 1 < argc) theta_override = (float)atof(argv[++i]);   /* the rig's limit */
         else if (udp_guardian) { usage(); return 2; }
     }
     if (udp_guardian && hz <= 0) hz = hardware ? 50.0f : 1000.0f;   /* must match the guardian's --hz */
@@ -98,6 +99,9 @@ int main(int argc, char **argv)
     rx_cfg_t cfg; rx_cfg_default(&cfg, hz);
     if (hardware) rx_cfg_hardware(&cfg);
     if (joint) { rx_cfg_joint(&cfg, hz); learn = 0; }        /* the learner is beam-only */
+    /* the guardian tells a pilot on a rig with a smaller servo authority (beam-direct: 19 mrad) what it may ask for;
+     * the network's output is scaled to it, so its commands stay in range instead of collecting strikes */
+    if (theta_override > 0.0f && theta_override < cfg.theta_max) cfg.theta_max = theta_override;
     const rx_net_t *net = rx_policy_net(joint ? RX_NET_JOINT : hardware ? RX_NET_HW : RX_NET_SIM);
 
     if (learn) {

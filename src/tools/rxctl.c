@@ -292,6 +292,7 @@ static const fault_t FAULTS[] = {
 };
 #define NFAULTS (sizeof FAULTS / sizeof FAULTS[0])
 
+static int campaign_passes = 2;          /* 1 = guarded only (--guarded-only: a real rig, do not drop the ball on purpose) */
 static void campaign(FILE *out)
 {
     const int joint = !strcmp(shm->plant, "joint");
@@ -316,7 +317,7 @@ static void campaign(FILE *out)
         const fault_t *F = &FAULTS[fi];
         double detect_ms = -1, min_edge = 1e9; unsigned lost_g = 0, lost_b = 0, restarts = 0;
         int not_injected = 0;
-        for (int pass = 0; pass < 2; pass++) {                  /* 0 = guarded, 1 = bypass */
+        for (int pass = 0; pass < campaign_passes; pass++) {    /* 0 = guarded, 1 = bypass */
             clear_faults(); rx_command(shm, "guard on"); rx_command(shm, "release");
             if (!wait_ai(is_udp() ? 60000 : 10000)) fprintf(stderr, "campaign: warning, system did not return to AI mode before '%s'\n", F->name);
             /* always start a run at the same phase of the setpoint square wave: 1 s after it goes positive */
@@ -802,7 +803,7 @@ int main(int argc, char **argv)
     }
     else if (!strcmp(c, "campaign")) {                         /* campaign [file.md] [--guest] */
         const char *md = NULL; int guest = 0;
-        for (int i = 2; i < argc; i++) { if (!strcmp(argv[i], "--guest")) guest = 1; else md = argv[i]; }
+        for (int i = 2; i < argc; i++) { if (!strcmp(argv[i], "--guest")) guest = 1; else if (!strcmp(argv[i], "--guarded-only")) campaign_passes = 1; else md = argv[i]; }
         if (guest && !is_udp()) { fprintf(stderr, "rxctl campaign --guest: the guardian's pilot transport is not udp\n"); return 2; }
         FILE *f = md ? fopen(md, "w") : stdout;
         if (!f) { perror(md); return 1; }
