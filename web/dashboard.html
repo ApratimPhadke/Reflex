@@ -47,9 +47,40 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
       <button onclick="go()" style="border-color:var(--safe)"><b>Target (Enter)</b><small id="pend">click the beam first</small></button>
       <button class="danger" onclick="cmd('release')"><b>Release e-stop</b><small>rxctl release</small></button>
     </div>
+    <div class="btns" style="grid-template-columns:repeat(5,1fr);margin-top:8px">
+      <button onclick="spMM(73)"><b>73 mm</b><small>target</small></button>
+      <button onclick="spMM(80)"><b>80 mm</b><small>target</small></button>
+      <button onclick="spMM(88)"><b>88 mm</b><small>centre</small></button>
+      <button onclick="spMM(95)"><b>95 mm</b><small>target</small></button>
+      <button onclick="spMM(103)"><b>103 mm</b><small>target</small></button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;align-items:center;margin-top:10px;font-size:13px">
+      <label>speed wn <b id="wnv">2.5</b> rad/s<br><input type="range" id="wn" min="0.5" max="8" step="0.1" value="2.5" style="width:100%" oninput="$('wnv').textContent=(+this.value).toFixed(1)"></label>
+      <label>damping zeta <b id="zev">1.0</b><br><input type="range" id="ze" min="0.3" max="2" step="0.05" value="1.0" style="width:100%" oninput="$('zev').textContent=(+this.value).toFixed(2)"></label>
+      <button onclick="cmd('gains '+$('wn').value+' '+$('ze').value)"><b>Apply gains</b><small id="gcur">now -</small></button>
+      <button onclick="$('wn').value=2.5;$('ze').value=1;$('wnv').textContent='2.5';$('zev').textContent='1.00';cmd('gains 2.5 1.0')"><b>Default</b><small>2.5 / 1.0</small></button>
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin-top:4px">Gains only change how hard the fallback steers to the target; the guardian's safety margins and its full-tilt catch near the ends do not use them.</div>
+    <div class="btns" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
+      <button id="pausebtn" onclick="paused=!paused;this.classList.toggle('on',paused);this.querySelector('b').textContent=paused?'Resume graphs':'Pause graphs'"><b>Pause graphs</b><small>freeze to inspect</small></button>
+      <button id="winbtn" onclick="win=win===500?3000:500;this.querySelector('b').textContent='Window '+(win/50)+' s'"><b>Window 10 s</b><small>10 s / 60 s</small></button>
+      <button id="recbtn" onclick="toggleRec()"><b>Record</b><small id="recn">every tick, in the browser</small></button>
+      <button onclick="downloadRec()"><b>Download CSV</b><small>the recording</small></button>
+    </div>
+    <div id="bdstats" style="margin-top:10px;font-size:13px;color:var(--dim)"></div>
     <div class="kv" id="bdkv" style="margin-top:10px"></div>
   </div>
   <div class="card"><h2>Plant</h2><canvas id="beam" height="210" style="cursor:crosshair"></canvas></div>
+  <div id="bdgraphs" style="display:none">
+  <div class="card" style="margin-top:14px"><h2>Ball: distance from the sensor (mm)</h2><canvas id="g_pos" height="190"></canvas>
+    <div class="legend"><span><i style="background:#8b949e"></i>raw echo</span><span><i style="background:#e6edf3"></i>filtered</span><span><i style="background:#58a6ff"></i>guardian estimate</span><span><i style="background:#d29922"></i>setpoint</span><span><i style="background:#3fb95033"></i>sensor sees well (46-130)</span><span><i style="background:#f8514933"></i>ball not seen</span></div></div>
+  <div class="card" style="margin-top:14px"><h2>Beam tilt (mrad, + = ball toward the servo end)</h2><canvas id="g_tilt" height="150"></canvas>
+    <div class="legend"><span><i style="background:#3fb950"></i>guardian command</span><span><i style="background:#e6edf3"></i>servo (applied pulse)</span><span><i style="background:#f8514955"></i>authority limit</span><span><i style="background:#d2992255"></i>held by hand</span></div></div>
+  <div class="card" style="margin-top:14px"><h2>Servo power</h2><canvas id="g_pow" height="130"></canvas>
+    <div class="legend"><span><i style="background:#f85149"></i>current (mA, left)</span><span><i style="background:#d29922"></i>supply (V, right, 2.5-5.5)</span></div></div>
+  <div class="card" style="margin-top:14px"><h2>MPU tilt (deg, raw) and sensor hits</h2><canvas id="g_mpu" height="110"></canvas>
+    <div class="legend"><span><i style="background:#bc8cff"></i>MPU tilt</span><span><i style="background:#3fb95088"></i>ping accepted</span></div></div>
+  </div>
   <div class="card" style="margin-top:14px"><h2>Ball position vs setpoint (last 10 s)</h2><canvas id="pos" height="170"></canvas>
     <div class="legend"><span><i style="background:#e6edf3"></i>ball</span><span><i style="background:#8b949e"></i>setpoint</span><span><i style="background:#f8514944"></i>keep-out strip</span><span><i style="background:#3fb95055"></i>guardian in control</span></div></div>
   <div class="card cmdcard" style="margin-top:14px"><h2>Command: what the AI asked for vs what reached the actuator</h2><canvas id="cmd" height="150"></canvas>
@@ -101,6 +132,39 @@ setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;co
  const px=ev.clientX-rc.left,py=ev.clientY-rc.top,d=((px-G.hx)*Math.cos(G.a)+(py-G.hy)*Math.sin(G.a))/G.k;   /* along the beam, mm */
  let x=(d-BD.ball/2-BD.centre)/1000;const clamped=Math.abs(x)>S.sp_limit;x=Math.max(-S.sp_limit,Math.min(S.sp_limit,x));pendX=x;
  go();if(clamped)$('pend').textContent='nearest allowed target';drawBeam()})},0);
+let paused=false,win=500,recOn=false,recRows=[];const HB=[],HR=[];let lastB=0,lastR=0;
+function spMM(mm){cmd('sp '+(mm-88));cmd('tilt off');armedX=(mm-88)/1000;pendX=armedX}
+function merge(){if(!S)return;for(const e of (S.bh||[]))if(e[0]>lastB){HB.push(e);lastB=e[0];if(recOn)recRows.push(['io',...e])}
+ for(const r of S.recs)if(r[0]>lastR){HR.push(r);lastR=r[0];if(recOn)recRows.push(['guard',...r])}
+ while(HB.length>3000)HB.shift();while(HR.length>3000)HR.shift();if(recOn)$('recn').textContent=recRows.length+' rows'}
+function toggleRec(){recOn=!recOn;$('recbtn').classList.toggle('on',recOn);$('recbtn').querySelector('b').textContent=recOn?'Stop recording':'Record';if(recOn)recRows=[]}
+function downloadRec(){const h='kind,seq,a,b,c,d,e,f,g,h,i\n# io: seq,raw_mm,filt_mm,applied_us,target_us,current_ma,supply_v,mpu_tilt_deg,accepted,hold\n# guard: seq,x_m,sp_m,u_ai_rad,u_out_rad,mode,reason,lat_us,lost,x_true\n';
+ const b=new Blob([h+recRows.map(r=>r.map(v=>v===null?'':v).join(',')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='reflex-beam-'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';a.click()}
+/* generic chart: newest point at the right; each series {d:array,col,lw,dots,y2}; bands [{lo,hi,col}]; shade fn(i)->col */
+function chart(id,ser,lo,hi,opt){const[g,w,h]=fit($(id));opt=opt||{};const n=win,X=i=>w-1-(i)*(w-1)/(n-1),Y=(v,a,b)=>h-((v-a)/(b-a))*h;
+ g.font='10px system-ui';g.fillStyle='#8b949e';
+ for(const b of opt.bands||[]){g.fillStyle=b.col;const y1=Y(b.hi,lo,hi),y2=Y(b.lo,lo,hi);g.fillRect(0,y1,w,y2-y1)}
+ if(opt.shade){const d=opt.shade.d,m=Math.min(d.length,n);for(let i=0;i<m;i++){const c=opt.shade.f(d[d.length-1-i]);if(c){g.fillStyle=c;g.fillRect(X(i)-w/n,0,w/n+1,h)}}}
+ g.strokeStyle='#2a313c';g.lineWidth=1;for(const t of opt.grid||[]){const y=Y(t,lo,hi);g.beginPath();g.moveTo(0,y);g.lineTo(w,y);g.stroke();g.fillStyle='#8b949e';g.fillText(t,2,y-2)}
+ for(const sr of ser){const a=sr.y2?sr.y2[0]:lo,b=sr.y2?sr.y2[1]:hi,d=sr.d,m=Math.min(d.length,n);g.strokeStyle=g.fillStyle=sr.col;g.lineWidth=sr.lw||1.5;
+  if(sr.dots){for(let i=0;i<m;i++){const v=d[d.length-1-i];if(v===null||v===undefined||isNaN(v))continue;const y=Y(Math.max(a,Math.min(b,v)),a,b);g.fillRect(X(i)-1,y-1,2,2)}continue}
+  g.beginPath();let pen=false;for(let i=0;i<m;i++){const v=d[d.length-1-i];if(v===null||v===undefined||isNaN(v)){pen=false;continue}const y=Y(Math.max(a,Math.min(b,v)),a,b);if(pen)g.lineTo(X(i),y);else g.moveTo(X(i),y);pen=true}g.stroke()}
+ if(opt.y2label){g.fillStyle='#d29922';g.fillText(opt.y2label,w-60,10)}}
+function bdGraphs(){const show=isBD();$('bdgraphs').style.display=show?'block':'none';if(!show||paused)return;const B=S.beam,t=a=>B.servo_dir*(a-B.level)/B.us_per_mrad;
+ const raw=HB.map(e=>e[1]>0&&e[1]<300?e[1]:null),fi=HB.map(e=>e[2]),est=HR.map(r=>r[8]?null:88+r[1]*1000),spv=HR.map(r=>88+r[2]*1000);
+ chart('g_pos',[{d:raw,col:'#8b949e',dots:true},{d:fi,col:'#e6edf3',lw:1.6},{d:est,col:'#58a6ff',lw:1.2},{d:spv,col:'#d29922',lw:1.2}],30,220,
+  {bands:[{lo:46,hi:130,col:'#3fb95018'}],grid:[46,88,130,200],shade:{d:HB,f:e=>e[8]?null:'#f8514918'}});
+ const th=S.theta_max*1000;
+ chart('g_tilt',[{d:HR.map(r=>r[4]*1000),col:'#3fb950',lw:1.6},{d:HB.map(e=>t(e[3])),col:'#e6edf3',lw:1.2}],-50,50,
+  {bands:[{lo:th,hi:th+0.6,col:'#f8514988'},{lo:-th-0.6,hi:-th,col:'#f8514988'}],grid:[-40,-20,0,20,40],shade:{d:HB,f:e=>e[9]?'#d2992222':null}});
+ chart('g_pow',[{d:HB.map(e=>e[5]),col:'#f85149',lw:1.2},{d:HB.map(e=>e[6]),col:'#d29922',lw:1.4,y2:[2.5,5.5]}],0,1600,{grid:[0,500,1000,1500],y2label:'supply V'});
+ const tv=HB.map(e=>e[7]).filter(v=>v!==null&&Math.abs(v)<45).sort((a,b)=>a-b),med=tv.length?tv[tv.length>>1]:0;
+ chart('g_mpu',[{d:HB.map(e=>e[7]!==null&&Math.abs(e[7])<45?e[7]:null),col:'#bc8cff',lw:1.4}],med-4,med+4,{grid:[+(med-3).toFixed(1),+med.toFixed(1),+(med+3).toFixed(1)],shade:{d:HB,f:e=>e[8]?'#3fb95018':null}});
+ /* stats over the window */
+ const wB=HB.slice(-win),wR=HR.slice(-win),pc=(a,f)=>a.length?(100*a.filter(f).length/a.length).toFixed(0):'-';
+ const amps=wB.map(e=>e[5]).filter(v=>v!==null),volts=wB.map(e=>e[6]).filter(v=>v!==null),seen=wB.map(e=>e[2]).filter(v=>v!==null);
+ $('bdstats').innerHTML='Last '+(win/50)+' s: sensor accepted <b>'+pc(wB,e=>e[8])+' %</b> of pings &middot; ball lost '+pc(wR,r=>r[8])+' % of ticks &middot; command at the limit <b>'+pc(wR,r=>Math.abs(r[4])>=S.theta_max*0.99)+' %</b> &middot; ball seen '+(seen.length?Math.min(...seen).toFixed(0)+'-'+Math.max(...seen).toFixed(0)+' mm':'-')+' &middot; current max '+(amps.length?Math.max(...amps).toFixed(0):'-')+' mA &middot; supply min '+(volts.length?Math.min(...volts).toFixed(2):'-')+' V';
+ $('gcur').textContent='now '+(S.wn||0).toFixed(1)+' / '+(S.zeta||0).toFixed(2)}
 function bdPanel(){const card=$('bdcard');if(!isBD()){card.style.display='none';return}card.style.display='block';const B=S.beam,r=S.recs.length?S.recs[S.recs.length-1]:null;
  const tilt=B.servo_dir*(B.applied-B.level)/B.us_per_mrad,f=(v,d,u)=>v===null||v===undefined?'-':v.toFixed(d)+(u||'');
  const rows=[['Beam', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">HELD at '+B.hold_mrad.toFixed(1)+' mrad</b> (guardian paused)':'guardian '+S.mode.toLowerCase()],
@@ -205,6 +269,6 @@ function drawBench(){if(!S||!S.bench)return;const B=S.bench,f=v=>v===null?'-':v;
  [['mean settling time',B.settle,' s'],['worst overshoot',B.over,' mm'],['RMS tracking error',B.rms,' mm']].map(r=>'<tr><td>'+r[0]+'</td><td style="text-align:right"'+better(r[1][0],r[1][1])+'>'+f(r[1][0])+r[2]+'</td><td style="text-align:right"'+better(r[1][1],r[1][0])+'>'+f(r[1][1])+r[2]+'</td></tr>').join('')+
  '<tr><td>guardian interventions</td><td style="text-align:right">'+B.iv[0]+'</td><td style="text-align:right">'+B.iv[1]+'</td></tr><tr><td>steps not settled</td><td style="text-align:right">'+B.unsettled[0]+'</td><td style="text-align:right">'+B.unsettled[1]+'</td></tr></table>'}
 function drawEvents(){if(!S)return;$('ev').innerHTML=S.events.slice().reverse().map(e=>'<div>'+e[0].toFixed(1).padStart(7)+' s ago &nbsp; <span style="color:var(--ink)">'+e[1]+'</span></div>').join('')}
-async function tick(){try{const r=await fetch('/api/state');S=await r.json();kv();bdPanel();armText();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent=(e instanceof TypeError&&/fetch|network|Failed/i.test(e.message))?'guardian not reachable':'dashboard error: '+e.message;console.error(e)}setTimeout(tick,100)}
+async function tick(){try{const r=await fetch('/api/state');S=await r.json();merge();kv();bdPanel();armText();bdGraphs();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent=(e instanceof TypeError&&/fetch|network|Failed/i.test(e.message))?'guardian not reachable':'dashboard error: '+e.message;console.error(e)}setTimeout(tick,100)}
 tick();
 </script></body></html>

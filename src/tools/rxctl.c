@@ -32,6 +32,8 @@ static void usage(void)
          "  watch                  live status, refreshed 5x per second\n"
          "  inject <fault> [ms]    crash | freeze | nan | huge | flip | stuck | slow [ms] | spin\n"
          "  clear                  remove the injected fault\n"
+         "  gains <wn> <zeta>      beam-direct: fallback PD speed [rad/s] and damping (performance only)\n"
+         "  tilt <mrad>|off        beam-direct: hold the beam at a tilt by hand (guardian paused) / release\n"
          "  guard on|off           off = let pilot commands straight through (to show what Reflex prevents)\n"
          "  sp <mm>|auto           manual setpoint in mm, or the automatic square wave\n"
          "  train on|off           learning pilot: explore / fly the best weights found\n"
@@ -749,6 +751,10 @@ int main(int argc, char **argv)
         printf("injected: %s\n", argv[2]);
     }
     else if (!strcmp(c, "clear")) rx_command(shm, "fault clear");
+    else if ((!strcmp(c, "gains") && argc >= 4) || (!strcmp(c, "tilt") && argc >= 3)) {   /* beam-direct */
+        char line[96]; snprintf(line, sizeof line, "%s %s %s", c, argv[2], argc >= 4 ? argv[3] : "");
+        if (rx_command(shm, line) != 0) { fprintf(stderr, "rxctl %s: bad value (gains wn 0.5..8 zeta 0.3..2; tilt mrad -60..60 | off)\n", c); return 1; }
+    }
     else if ((!strcmp(c, "guard") || !strcmp(c, "sp") || !strcmp(c, "train") || !strcmp(c, "period")) && argc >= 3) {
         snprintf(line, sizeof line, "%s %s", c, argv[2]);
         if (rx_command(shm, line) != 0) { usage(); return 2; }

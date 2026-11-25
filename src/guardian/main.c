@@ -478,6 +478,9 @@ int main(int argc, char **argv)
 
         float x_true; int lost, fresh;
         float z = io->read(io, &x_true, &lost, &fresh);
+        /* the sensor had lost the plant and sees it again: restart the estimate there, at rest. Otherwise the
+         * jump from the last remembered position reads as a velocity (step 4: 160 -> 85 mm = 0.6 m/s). */
+        if (!sensor_ok && isfinite(z) && !lost) est.init = 0;
         if (fresh && isfinite(z)) rx_est_update(&est, &cfg, z);
         else rx_est_predict(&est, &cfg);                             /* no new sample this tick */
         int ok_now = isfinite(z) && !lost;
@@ -580,6 +583,10 @@ int main(int argc, char **argv)
             }
         }
         if (offence_age > 0 && --offence_age == 0) offences = 0;
+        if (atomic_exchange(&shm->cmd_gains, 0)) {                  /* operator: fallback PD gains (performance only) */
+            cfg.wn = shm->cmd_wn; cfg.zeta = shm->cmd_zeta;
+        }
+        shm->cur_wn = cfg.wn; shm->cur_zeta = cfg.zeta;
         if (atomic_exchange(&shm->cmd_release_quarantine, 0)) {
             if (io->release) io->release(io);                       /* e-stop latch (beam-direct) */
             if (estop_on) { estop_on = 0; atomic_store(&shm->force_fallback, 0); }

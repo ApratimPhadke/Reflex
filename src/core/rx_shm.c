@@ -140,6 +140,13 @@ int rx_command(rx_shm_t *s, const char *line)
             return 0;
         }
     }
+    {   /* "gains <wn> <zeta>": the fallback PD's natural frequency [rad/s] and damping, bounded */
+        float wn, ze; char w[8] = "";
+        if (sscanf(line, " %7s %f %f", w, &wn, &ze) == 3 && !strcasecmp(w, "gains")) {
+            if (!(wn >= 0.5f && wn <= 8.0f && ze >= 0.3f && ze <= 2.0f)) { errno = EINVAL; return -1; }
+            s->cmd_wn = wn; s->cmd_zeta = ze; atomic_store(&s->cmd_gains, 1); return 0;
+        }
+    }
     int k = sscanf(line, "%31s %31s %u", a, b, &n);
     if (k < 1) return -1;
     if (!strcasecmp(a, "fault") && k >= 2) return rx_fault_apply(s, b, n);

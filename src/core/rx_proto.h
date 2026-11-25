@@ -200,6 +200,14 @@ typedef struct {
     _Atomic uint32_t beam_present, beam_applied_us, beam_target_us, beam_estop, beam_trip, beam_level_us;
     _Atomic int32_t  beam_servo_dir, beam_hold_mrad10;   /* operator tilt hold, 0.1 mrad; + = ball toward +x */
     _Atomic uint32_t beam_hold;
+    /* beam-direct per-tick I/O history for the dashboard's graphs (display only; the control thread writes,
+     * seq last; a reader that sees seq change under it skips the record) */
+    struct { _Atomic uint32_t seq; float raw_mm, filt_mm, amp_ma, volt, tilt_deg; uint16_t applied_us, target_us; uint8_t accepted, hold; } beam_hist[1024];
+    _Atomic uint64_t beam_head;
+    /* operator gains for the fallback controller's PD ("gains <wn> <zeta>"): how hard it steers to the setpoint.
+     * The margins and the near-limit full-authority branch do not use them. */
+    float cmd_wn, cmd_zeta, cur_wn, cur_zeta;
+    _Atomic uint32_t cmd_gains;
 } rx_shm_t;
 
 #endif

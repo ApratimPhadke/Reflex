@@ -99,7 +99,26 @@ static size_t build_state(void)
     ADD(",\"applied\":%u,\"target\":%u,\"estop\":%u,\"trip\":%u,\"level\":%u,\"servo_dir\":%d,\"hold\":%u,\"hold_mrad\":%.1f},",
         atomic_load(&shm->beam_applied_us), atomic_load(&shm->beam_target_us), atomic_load(&shm->beam_estop), atomic_load(&shm->beam_trip),
         atomic_load(&shm->beam_level_us), atomic_load(&shm->beam_servo_dir), atomic_load(&shm->beam_hold), atomic_load(&shm->beam_hold_mrad10) * 0.1);
-    ADD("\"edge_margin\":%.3f,\"sp_limit\":%.3f,", shm->edge_margin, 0.015);
+    ADD("\"edge_margin\":%.3f,\"sp_limit\":%.3f,\"wn\":%.2f,\"zeta\":%.2f,", shm->edge_margin, 0.015, shm->cur_wn, shm->cur_zeta);
+    {   /* beam-direct I/O history, last 10 s at most 250 points: [seq,raw,filt,applied,target,mA,V,tilt,acc,hold] */
+        ADD("\"bh\":[");
+        uint64_t bhh = atomic_load(&shm->beam_head), sp = (uint64_t)(10 * shm->hz);
+        if (sp > 1000) sp = 1000;
+        if (sp > bhh) sp = bhh;
+        uint64_t st = sp / 250 + 1; int fst = 1;
+        for (uint64_t i = bhh - sp; i < bhh && n < cap - 512; i += st) {
+            __typeof__(shm->beam_hist[0]) *e = &shm->beam_hist[i % 1024];
+            uint32_t q = atomic_load(&e->seq);
+            float raw = e->raw_mm, fi = e->filt_mm, amp = e->amp_ma, vo = e->volt, ti = e->tilt_deg;
+            unsigned ap = e->applied_us, tg = e->target_us, ac = e->accepted, ho = e->hold;
+            if (q != (uint32_t)i + 1 || atomic_load(&e->seq) != q) continue;         /* being rewritten */
+            ADD("%s[%u,", fst ? "" : ",", q); fst = 0;
+            n += jnum(p + n, cap - n, raw, 1); ADD(","); n += jnum(p + n, cap - n, fi, 1);
+            ADD(",%u,%u,", ap, tg); n += jnum(p + n, cap - n, amp, 0); ADD(","); n += jnum(p + n, cap - n, vo, 2);
+            ADD(","); n += jnum(p + n, cap - n, ti, 2); ADD(",%u,%u]", ac, ho);
+        }
+        ADD("],");
+    }
     ADD("\"interventions\":{");
     for (int i = 1; i < RX_R_COUNT; i++) ADD("%s\"%s\":%llu", i > 1 ? "," : "", rx_reason_name[i], (unsigned long long)atomic_load(&shm->interventions[i]));
     ADD("},\"hist\":[");
@@ -113,7 +132,7 @@ static size_t build_state(void)
         for (uint32_t i = ne - span; i < ne; i++) ADD("%s%u", i > ne - span ? "," : "", shm->learn_iv[i & (RX_LEARN_HIST - 1)]);
         ADD("]},\"events\":[");
         uint64_t eh = atomic_load(&shm->ev_head), now = rx_now_ns(); int first = 1;
-        for (uint64_t i = eh > 9 ? eh - 9 : 0; i < eh; i++) {
+        for (uint64_t i = eh > 30 ? eh - 30 : 0; i < eh; i++) {
             rx_event_t e;
             if (!rx_event_get(shm, i, &e)) continue;
             const char *nm = e.code < RX_E_COUNT ? rx_event_name[e.code] : "?";

@@ -169,6 +169,16 @@ static float beam_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
         m->beam_tilt_deg = s.tilt_deg; m->beam_hit_pct = 0.98f * m->beam_hit_pct + (s.valid ? 2.0f : 0.0f);
         atomic_store(&m->beam_applied_us, (uint32_t)s.applied_us); atomic_store(&m->beam_target_us, (uint32_t)s.target_us);
         atomic_store(&m->beam_estop, (uint32_t)atomic_load(&b->estop)); atomic_store(&m->beam_trip, (uint32_t)(atomic_load(&b->trip) != 0));
+        {   /* graph history */
+            uint64_t h = atomic_load_explicit(&m->beam_head, memory_order_relaxed);
+            __typeof__(m->beam_hist[0]) *e = &m->beam_hist[h % 1024];
+            atomic_store_explicit(&e->seq, 0, memory_order_relaxed);
+            e->raw_mm = s.raw_mm; e->filt_mm = s.filt_mm; e->amp_ma = s.amp * 1000.0f; e->volt = s.volt; e->tilt_deg = s.tilt_deg;
+            e->applied_us = (uint16_t)s.applied_us; e->target_us = (uint16_t)s.target_us; e->accepted = (uint8_t)s.valid;
+            e->hold = (uint8_t)(atomic_load(&b->shm->beam_hold) != 0);
+            atomic_store_explicit(&e->seq, (uint32_t)h + 1, memory_order_release);
+            atomic_store_explicit(&m->beam_head, h + 1, memory_order_release);
+        }
         if (s.valid) { b->gap = 0; b->last_x = s.x; } else b->gap++;
         /* evaluation only (the guardian's decisions never use it): the ball reached the end of the beam it can
          * be seen on, or was last seen near an end and then vanished for 0.5 s */
