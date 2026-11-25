@@ -1,0 +1,23 @@
+trial t2, 2026-11-25T10:08:57+05:30, commit c654af1-dirty
+command: scripts/beam-trial.sh t2 30 0 --no-pilot
+[guardian] beam-direct: theta_max 19.2 mrad (1.10 deg) from 1040..1690 us around 1500, t_delay 207 ms, half_len 42 mm
+[guardian] pid 1523758  qnx-msgpass  50 Hz  plant=beam-direct  prio=50  pilot=(none)
+ticks 1499 (30.0 s)
+ball x: mean +5.8 mm, sd 7.0, min -3.3, max +19.2; error to setpoint rms 9.1 mm
+crossings of the mean: 116 (1.93 Hz if periodic)
+sensor lost 5 % of ticks; modes {'SAFE': 1499}; reasons {'no-pilot': 1499}
+command: -19.2..+19.2 mrad; at the limits (|u| >= 99 % theta_max) 66 % of ticks
+sonar accepted 71 %; current mean 402 mA peak 1311 mA; supply min 2.76 V; MPU tilt -25.3..+171.0 deg
+balls lost        0
+interventions     0 total
+
+analysis (step 4, trial 2):
+- the guardian's command sat at +-theta_max for 66 % of ticks, 985 of the 1003 saturated ticks with margin < 10 mm:
+  the "near the edge: full authority away" branch of rx_safe_u, driven by velocity estimates of 100-130 mm/s
+- those velocities are not the ball: the raw HC-SR04 reading toggles between two clusters, 88 mm (878 ticks) and
+  103 mm (383 ticks), within 1-2 ticks; tick-to-tick jumps p90 16.4 mm. With 1.1 deg of tilt the ball cannot exceed
+  ~0.14 m/s over this beam, so a 15 mm jump in 20 ms is an echo change
+- the 103 mm echo comes with the servo end up (applied pulse median 1604 us vs 1450 us for the 88 mm echo):
+  the reading depends on the beam angle, i.e. the sensor's cone sees the ball (or the beam) differently as the beam
+  tilts -> self-excited limit cycle; current 402 mA mean, 1311 mA peak, supply down to 2.76 V
+- MPU tilt in the log is garbage (-25..+171 deg) during the limit cycle (logging only, not used)

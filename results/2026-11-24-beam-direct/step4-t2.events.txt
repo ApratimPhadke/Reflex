@@ -1,0 +1,19 @@
+   33.08s ago  tick 0         guardian started [1]
+   33.08s ago  tick 1         sensor lost
+   32.52s ago  tick 29        sensor lost
+   29.72s ago  tick 169       sensor lost
+   27.96s ago  tick 257       sensor lost
+   23.22s ago  tick 494       sensor lost
+   19.66s ago  tick 672       sensor lost
+   17.60s ago  tick 775       sensor lost
+   14.14s ago  tick 948       sensor lost
+   12.74s ago  tick 1018      sensor lost
+   10.98s ago  tick 1106      sensor lost
+    9.90s ago  tick 1160      sensor lost
+    7.86s ago  tick 1262      sensor lost
+    5.42s ago  tick 1384      sensor lost
+    3.92s ago  tick 1459      sensor lost
+    1.96s ago  tick 1557      sensor lost
+    1.66s ago  tick 1572      sensor lost
+    1.44s ago  tick 1583      sensor lost
+    1.12s ago  tick 1599      sensor lost

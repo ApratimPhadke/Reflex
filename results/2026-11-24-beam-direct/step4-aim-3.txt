@@ -1,0 +1,205 @@
+t=   1 s  ball seen in   0 % of pings  (only the room)
+t=   2 s  ball seen in   0 % of pings  (only the room)
+t=   3 s  ball seen in   0 % of pings  (only the room)
+t=   4 s  ball seen in   0 % of pings  (only the room)
+t=   5 s  ball seen in   0 % of pings  (only the room)
+t=   6 s  ball seen in   0 % of pings  (only the room)
+t=   7 s  ball seen in   0 % of pings  (only the room)
+t=   8 s  ball seen in   0 % of pings  (only the room)
+t=   9 s  ball seen in   0 % of pings  (only the room)
+t=  10 s  ball seen in   0 % of pings  (only the room)
+t=  11 s  ball seen in   0 % of pings  (only the room)
+t=  12 s  ball seen in   0 % of pings  (only the room)
+t=  13 s  ball seen in   0 % of pings  (only the room)
+t=  14 s  ball seen in   0 % of pings  (only the room)
+t=  15 s  ball seen in   0 % of pings  (only the room)
+t=  16 s  ball seen in   0 % of pings  (only the room)
+t=  17 s  ball seen in   0 % of pings  (only the room)
+t=  18 s  ball seen in   0 % of pings  (only the room)
+t=  19 s  ball seen in   0 % of pings  (only the room)
+t=  20 s  ball seen in   0 % of pings  (only the room)
+t=  21 s  ball seen in   0 % of pings  (only the room)
+t=  22 s  ball seen in   0 % of pings  (only the room)
+t=  23 s  ball seen in   0 % of pings  (only the room)
+t=  24 s  ball seen in  27 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  25 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  26 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  27 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  28 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  29 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  30 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  31 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  32 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  33 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  34 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  35 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  36 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 103)
+t=  38 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  39 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  40 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  41 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  42 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  43 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  44 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  45 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  46 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  47 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 103)
+t=  48 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  49 s  ball seen in 100 % of pings  
+           mean ball distance 102 mm (last 102)
+t=  50 s  ball seen in  96 % of pings  
+           mean ball distance 105 mm (last 102)
+t=  51 s  ball seen in  70 % of pings  
+           mean ball distance 143 mm (last 189)
+t=  52 s  ball seen in  80 % of pings  
+           mean ball distance 162 mm (last 147)
+t=  53 s  ball seen in  96 % of pings  
+           mean ball distance 188 mm (last 170)
+t=  54 s  ball seen in 100 % of pings  
+           mean ball distance 179 mm (last 183)
+t=  55 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  56 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  57 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  58 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  59 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  60 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  61 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  62 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  63 s  ball seen in 100 % of pings  
+           mean ball distance 183 mm (last 183)
+t=  64 s  ball seen in 100 % of pings  
+           mean ball distance 184 mm (last 164)
+t=  65 s  ball seen in  90 % of pings  
+           mean ball distance 199 mm (last 196)
+t=  66 s  ball seen in  76 % of pings  
+           mean ball distance 166 mm (last 164)
+t=  67 s  ball seen in  55 % of pings  
+           mean ball distance 158 mm (last 206)
+t=  68 s  ball seen in   0 % of pings  (only the room)
+t=  69 s  ball seen in  24 % of pings  
+           mean ball distance 180 mm (last 164)
+t=  70 s  ball seen in  13 % of pings  
+           mean ball distance 173 mm (last 186)
+t=  71 s  ball seen in   0 % of pings  (only the room)
+t=  72 s  ball seen in   0 % of pings  (only the room)
+t=  73 s  ball seen in   0 % of pings  (only the room)
+t=  74 s  ball seen in  66 % of pings  
+           mean ball distance 60 mm (last 62)
+t=  75 s  ball seen in   0 % of pings  (only the room)
+t=  76 s  ball seen in   0 % of pings  (only the room)
+t=  77 s  ball seen in   7 % of pings  
+           mean ball distance 62 mm (last 62)
+t=  78 s  ball seen in   3 % of pings  
+           mean ball distance 106 mm (last 106)
+t=  79 s  ball seen in  37 % of pings  
+           mean ball distance 49 mm (last 49)
+t=  80 s  ball seen in  27 % of pings  
+           mean ball distance 51 mm (last 62)
+t=  81 s  ball seen in  90 % of pings  
+           mean ball distance 50 mm (last 49)
+t=  82 s  ball seen in 100 % of pings  
+           mean ball distance 49 mm (last 49)
+t=  83 s  ball seen in  48 % of pings  
+           mean ball distance 53 mm (last 62)
+t=  84 s  ball seen in   0 % of pings  (only the room)
+t=  85 s  ball seen in   7 % of pings  
+           mean ball distance 235 mm (last 231)
+t=  86 s  ball seen in  68 % of pings  
+           mean ball distance 202 mm (last 228)
+t=  87 s  ball seen in  65 % of pings  
+           mean ball distance 163 mm (last 106)
+t=  88 s  ball seen in  90 % of pings  
+           mean ball distance 94 mm (last 89)
+t=  89 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  90 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  91 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  93 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  94 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  95 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  96 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  97 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  98 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t=  99 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t= 100 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t= 101 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 88)
+t= 102 s  ball seen in 100 % of pings  
+           mean ball distance 90 mm (last 89)
+t= 103 s  ball seen in 100 % of pings  
+           mean ball distance 90 mm (last 89)
+t= 104 s  ball seen in 100 % of pings  
+           mean ball distance 91 mm (last 89)
+t= 105 s  ball seen in 100 % of pings  
+           mean ball distance 97 mm (last 106)
+t= 106 s  ball seen in 100 % of pings  
+           mean ball distance 96 mm (last 89)
+t= 107 s  ball seen in 100 % of pings  
+           mean ball distance 96 mm (last 89)
+t= 108 s  ball seen in 100 % of pings  
+           mean ball distance 95 mm (last 89)
+t= 109 s  ball seen in  96 % of pings  
+           mean ball distance 97 mm (last 106)
+t= 110 s  ball seen in 100 % of pings  
+           mean ball distance 95 mm (last 89)
+t= 111 s  ball seen in 100 % of pings  
+           mean ball distance 97 mm (last 89)
+t= 112 s  ball seen in 100 % of pings  
+           mean ball distance 93 mm (last 89)
+t= 113 s  ball seen in 100 % of pings  
+           mean ball distance 94 mm (last 106)
+t= 114 s  ball seen in 100 % of pings  
+           mean ball distance 101 mm (last 89)
+t= 115 s  ball seen in 100 % of pings  
+           mean ball distance 97 mm (last 89)
+t= 116 s  ball seen in 100 % of pings  
+           mean ball distance 91 mm (last 89)
+t= 117 s  ball seen in 100 % of pings  
+           mean ball distance 93 mm (last 89)
+t= 118 s  ball seen in 100 % of pings  
+           mean ball distance 89 mm (last 89)
+t= 119 s  ball seen in 100 % of pings  
+           mean ball distance 90 mm (last 89)
+overall: ball seen in 2402 of 3520 pings (68 %)

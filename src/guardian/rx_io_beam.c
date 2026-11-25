@@ -197,6 +197,7 @@ rx_io_t *rx_io_beam_open(const rx_cfg_t *cfg, rx_shm_t *shm, const rx_conf_t *co
     rx_io_t *io = calloc(1, sizeof *io);
     if (!b || !io) { free(b); free(io); return NULL; }
     b->cfg = cfg; b->conf = *conf; b->shm = shm; b->last_x = 0;
+    b->gap = RX_SONAR_LOST_TICKS;                                   /* nothing measured yet = lost (beam level) */
     atomic_store(&b->cmd_us, conf->level_us);
     if (rx_gpio_open() != 0) { perror("[beam] /dev/gpio/msg"); goto fail; }
     if ((b->i2c = rx_i2c_open(1)) < 0) { perror("[beam] /dev/i2c1"); goto fail; }

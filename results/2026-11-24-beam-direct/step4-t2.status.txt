@@ -1,0 +1,13 @@
+reflex            v4  backend=beam  plant=beam  rate=50Hz
+mode              SAFE (no-pilot)
+ball              x=+13.7mm v=+0.110m/s setpoint=+0mm  margin=-118.2mm
+command           pilot=+nanrad  actuator=-0.0192rad
+ticks             1655
+wake latency      max=33.8us  deadline-misses=0
+guardian exec     max=39.0us
+interventions     0 total
+pilot             pid=0 present=0 restarts=0 kills=0 quarantined=0 fault=none
+balls lost        0
+guardian starts   1
+spoofed senders   0 refused
+learning          off  episodes=0  smoothed cost=0.000

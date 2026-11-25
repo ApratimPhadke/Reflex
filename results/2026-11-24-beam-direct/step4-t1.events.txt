@@ -1,0 +1,2 @@
+   33.08s ago  tick 0         guardian started [1]
+   33.08s ago  tick 1         sensor lost

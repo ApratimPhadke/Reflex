@@ -1,0 +1,10 @@
+trial t1, 2026-11-25T02:04:32+05:30, commit c654af1-dirty
+command: scripts/beam-trial.sh t1 30 0 --no-pilot
+[guardian] beam-direct: theta_max 19.2 mrad (1.10 deg) from 1040..1690 us around 1500, t_delay 207 ms, half_len 42 mm
+[guardian] pid 4448302  qnx-msgpass  50 Hz  plant=beam-direct  prio=50  pilot=(none)
+ticks 1499 (30.0 s)
+sensor lost 100 % of ticks; modes {'SAFE': 1499}; reasons {'no-pilot': 1499}
+command: +0.0..+0.0 mrad; at the limits (|u| >= 99 % theta_max) 0 % of ticks
+sonar accepted 0 %; current mean 9 mA peak 10 mA; supply min 4.92 V; MPU tilt +6.3..+7.0 deg
+balls lost        0
+interventions     0 total

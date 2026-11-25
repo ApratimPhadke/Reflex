@@ -1,0 +1,5 @@
+[guardian] beam-direct: theta_max 19.2 mrad (1.10 deg) from 1040..1690 us around 1500, t_delay 207 ms, half_len 42 mm
+[guardian] mlockall (continuing): Operation not permitted
+[guardian] pid 1523758  qnx-msgpass  50 Hz  plant=beam-direct  prio=50  pilot=(none)
+[guardian] running. Use rxctl / rxdash / cat /dev/reflex to look inside.
+[guardian] stopped
