@@ -20,7 +20,9 @@ typedef struct {
     float half_len;      /* position limit: beam half length [m] / joint angle limit [rad] */
     float edge_margin;   /* keep-out strip at each end, same units */
     float k_acc;         /* beam: ball acceleration per sin(beam angle) [m/s^2] */
-    float theta_max;     /* actuator limit: beam angle [rad] / joint torque [N m] */
+    float theta_max;     /* actuator limit: beam angle [rad] / joint torque [N m]; the AI's range, both directions */
+    float theta_fb_pos;  /* beam: tilt the FALLBACK alone may use toward +x, >= theta_max (beam-direct: the servo
+                          * lowers the servo end further than it lifts it); 0 = theta_max, i.e. symmetric */
     float slew;          /* actuator slew rate [rad/s] / [N m/s] (simulator + envelope sizing) */
     float t_delay;       /* worst-case time before braking takes effect [s] */
     float brake_eta;     /* fraction of ideal braking we are willing to rely on */
@@ -42,9 +44,10 @@ void  rx_cfg_default(rx_cfg_t *c, float hz);
 void  rx_cfg_hardware(rx_cfg_t *c);   /* adjustments for the real beam: slow, noisy sensor and a real servo */
 void  rx_cfg_joint(rx_cfg_t *c, float hz);
 /* the beam-direct rig (after rx_cfg_hardware): physical numbers measured in results/2026-11-24-beam-direct.
- * theta_max: the smaller side of the servo's authority around level [rad]; reversal_s: time to swing the
- * beam from +theta_max to -theta_max at the backend's slew limit. */
-void  rx_cfg_beam_direct(rx_cfg_t *c, float theta_max, float reversal_s);   /* the robot-joint plant (replaces everything rx_cfg_default set) */
+ * theta_max: the smaller side of the servo's authority around level [rad] (the AI's range); theta_fb_pos:
+ * the servo's authority toward +x, which only the fallback uses; reversal_s: time to swing the beam from
+ * +theta_fb_pos to -theta_max at the backend's slew limit. */
+void  rx_cfg_beam_direct(rx_cfg_t *c, float theta_max, float theta_fb_pos, float reversal_s);   /* the robot-joint plant (replaces everything rx_cfg_default set) */
 
 /* alpha-beta position/velocity estimator */
 typedef struct { float x, v; int init; } rx_est_t;
@@ -58,13 +61,20 @@ float rx_margin(const rx_cfg_t *c, float x, float v);
 
 /* The verified fallback controller (brake when close to the limit, PD otherwise) */
 float rx_safe_u(const rx_cfg_t *c, float x, float v, float sp);
+/* The same with the actuator's recent history: u_peak = the largest command sent toward +x within the last
+ * t_delay (>= the tilt the actuator may still be at). With theta_fb_pos = 0 these equal rx_margin / rx_safe_u. */
+float rx_margin_applied(const rx_cfg_t *c, float x, float v, float u_peak);
+float rx_safe_u_applied(const rx_cfg_t *c, float x, float v, float sp, float u_peak);
 
+#define RX_GUARD_UHIST 64    /* recent commands kept by the guard (t_delay must stay below this many ticks) */
 typedef struct {
     uint8_t  mode, reason;
     uint8_t  quarantined;
     uint32_t hold_left;
     uint32_t strikes, strike_age;
     float    u_last;
+    float    u_hist[RX_GUARD_UHIST];   /* the commands of the last RX_GUARD_UHIST ticks (ring) */
+    uint32_t u_n;
 } rx_guard_t;
 
 typedef struct {

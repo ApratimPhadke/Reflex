@@ -307,12 +307,17 @@ int main(int argc, char **argv)
             /* the servo's authority around level, the smaller side; never more than the kernel's own limit */
             if (!conf.servo_min_us) { fprintf(stderr, "[guardian] --backend beam needs servo_min_us/servo_max_us in %s\n", conf_path); return 2; }
             float up = (float)(conf.servo_max_us - conf.level_us), dn = (float)(conf.level_us - conf.servo_min_us);
-            float th = (up < dn ? up : dn) / (conf.us_per_mrad * 1000.0f);
+            /* +u (ball toward +x) moves the pulse by servo_dir: which side of level has the room for it */
+            float pos = (conf.servo_dir < 0 ? dn : up) / (conf.us_per_mrad * 1000.0f), neg = (conf.servo_dir < 0 ? up : dn) / (conf.us_per_mrad * 1000.0f);
+            float th = pos < neg ? pos : neg;                     /* the AI's range: the smaller side */
             if (th > cfg.theta_max) th = cfg.theta_max;
-            float reversal = 2.0f * th * 1000.0f * conf.us_per_mrad / (float)RX_BEAM_SLEW_US * cfg.dt;
-            rx_cfg_beam_direct(&cfg, th, reversal);
-            fprintf(stderr, "[guardian] beam-direct: theta_max %.1f mrad (%.2f deg) from %d..%d us around %d, t_delay %.0f ms, half_len %.0f mm\n",
-                    th * 1e3, th * 57.29578f, conf.servo_min_us, conf.servo_max_us, conf.level_us, cfg.t_delay * 1e3, cfg.half_len * 1e3);
+            float fbp = pos > th ? pos : th;                      /* the fallback alone, toward +x */
+            if (fbp > 0.21f) fbp = 0.21f;
+            float reversal = (fbp + th) * 1000.0f * conf.us_per_mrad / (float)RX_BEAM_SLEW_US * cfg.dt;
+            rx_cfg_beam_direct(&cfg, th, fbp, reversal);
+            fprintf(stderr, "[guardian] beam-direct: theta_max %.1f mrad (%.2f deg, AI and fallback), fallback toward +x up to %.1f mrad (%.2f deg); "
+                            "from %d..%d us around %d, t_delay %.0f ms, half_len %.0f mm\n",
+                    th * 1e3, th * 57.29578f, fbp * 1e3, fbp * 57.29578f, conf.servo_min_us, conf.servo_max_us, conf.level_us, cfg.t_delay * 1e3, cfg.half_len * 1e3);
         }
     } else if (o.conf || access(conf_path, R_OK) == 0) {   /* sim (or --uncalibrated): only the pilot transport keys matter */
         char err[256];

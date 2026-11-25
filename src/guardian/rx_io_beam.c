@@ -200,8 +200,8 @@ static float beam_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
 static void beam_write(rx_io_t *io, float u)
 {
     beam_t *b = io->priv;
-    float lim = b->cfg->theta_max;                                  /* never ask for more than the kernel allows */
-    if (isfinite(u)) u = u > lim ? lim : (u < -lim ? -lim : u);
+    float lo = -b->cfg->theta_max, hi = b->cfg->theta_fb_pos > b->cfg->theta_max ? b->cfg->theta_fb_pos : b->cfg->theta_max;
+    if (isfinite(u)) u = u > hi ? hi : (u < lo ? lo : u);          /* never more than the kernel allows */
     int p = rx_conf_pulse(&b->conf, u);
     if (p < b->conf.servo_min_us) p = b->conf.servo_min_us;
     if (p > b->conf.servo_max_us) p = b->conf.servo_max_us;
