@@ -39,12 +39,12 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
 <div id="bigstats"><div><b id="bs0">-</b><span id="bl0">balls lost</span></div><div><b id="bs1">-</b><span>guardian take-overs</span></div><div><b id="bs2">-</b><span>worst wake-up latency</span></div><div><b id="bs3">-</b><span>control rate</span></div></div>
 <div>
   <div class="card" id="bdcard" style="display:none;margin-bottom:14px"><h2>Beam-direct rig: place the ball</h2>
-    <div style="font-size:13px;color:var(--dim);margin-bottom:8px">1. Tilt the beam with the buttons (the guardian is paused while the beam is held). 2. <b style="color:var(--ink)">Click on the beam</b> where the ball should go. 3. Press <b style="color:var(--ink)">Enter</b>: the hold is released and the guardian balances the ball there. <b style="color:var(--ink)">Space</b> = level hold.</div>
+    <div style="font-size:13px;color:var(--dim);margin-bottom:8px"><b style="color:var(--ink)">Click on the beam</b> where the ball should be: that target is armed at once (blue line). With no ball the guardian waits with the beam level; <b style="color:var(--ink)">put the ball on the beam</b> and it is balanced at the target. The tilt buttons / arrow keys hold the beam by hand (guardian paused); <b style="color:var(--ink)">Enter</b> re-arms the target, <b style="color:var(--ink)">Space</b> = level hold.</div>
     <div class="btns" style="grid-template-columns:repeat(5,1fr)">
       <button onclick="tiltBy(-5)"><b>&larr; sensor</b><small>tilt 5 mrad</small></button>
       <button onclick="holdAt(0)"><b>Level</b><small>hold level</small></button>
       <button onclick="tiltBy(5)"><b>servo &rarr;</b><small>tilt 5 mrad</small></button>
-      <button onclick="go()" style="border-color:var(--safe)"><b>Balance (Enter)</b><small id="pend">click the beam first</small></button>
+      <button onclick="go()" style="border-color:var(--safe)"><b>Target (Enter)</b><small id="pend">click the beam first</small></button>
       <button class="danger" onclick="cmd('release')"><b>Release e-stop</b><small>rxctl release</small></button>
     </div>
     <div class="kv" id="bdkv" style="margin-top:10px"></div>
@@ -90,13 +90,17 @@ function isBD(){return S&&S.beam&&S.beam.present}
 function curTilt(){if(!isBD())return 0;const B=S.beam;return B.hold?B.hold_mrad:(B.level-B.applied)*(-B.servo_dir)/B.us_per_mrad*(-1)}
 function holdAt(m){m=Math.max(-50,Math.min(50,m));cmd('tilt '+m.toFixed(1))}
 function tiltBy(d){if(!isBD())return;const B=S.beam;const now=B.hold?B.hold_mrad:B.servo_dir*(B.applied-B.level)/B.us_per_mrad;holdAt(now+d)}
-function go(){if(pendX===null){$('pend').textContent='click the beam first';return}const mm=Math.round(pendX*1000);cmd('sp '+mm);cmd('tilt off');$('pend').textContent='balancing at '+mm+' mm'}
+let armedX=null;   /* the target the guardian has been given */
+function go(){if(pendX===null){$('pend').textContent='click the beam first';return}const mm=Math.round(pendX*1000);cmd('sp '+mm);cmd('tilt off');armedX=pendX}
+function armText(){if(armedX===null||!isBD())return;const B=S.beam,mm=Math.round(BD.centre+armedX*1000),r=S.recs.length?S.recs[S.recs.length-1]:null;
+ const seen=r&&!r[8]&&B.filt!==null,err=seen?(r[1]-armedX)*1000:null;
+ $('pend').textContent=B.hold?'armed '+mm+' mm - beam held by hand':!seen?'armed '+mm+' mm - waiting for the ball':'balancing at '+mm+' mm (error '+err.toFixed(0)+' mm)'}
 document.addEventListener('keydown',e=>{if(!isBD())return;if(e.key==='Enter'){e.preventDefault();go()}else if(e.key===' '){e.preventDefault();holdAt(0)}else if(e.key==='ArrowRight')tiltBy(2);else if(e.key==='ArrowLeft')tiltBy(-2)});
 document.addEventListener('DOMContentLoaded',()=>{});
 setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,h=chH(c),G=bdGeom(w,h);
  const px=ev.clientX-rc.left,py=ev.clientY-rc.top,d=((px-G.hx)*Math.cos(G.a)+(py-G.hy)*Math.sin(G.a))/G.k;   /* along the beam, mm */
  let x=(d-BD.ball/2-BD.centre)/1000;const clamped=Math.abs(x)>S.sp_limit;x=Math.max(-S.sp_limit,Math.min(S.sp_limit,x));pendX=x;
- $('pend').textContent='go to '+Math.round(BD.centre+x*1000)+' mm from the sensor'+(clamped?' (nearest allowed)':'')+' - Enter';drawBeam()})},0);
+ go();if(clamped)$('pend').textContent='nearest allowed target';drawBeam()})},0);
 function bdPanel(){const card=$('bdcard');if(!isBD()){card.style.display='none';return}card.style.display='block';const B=S.beam,r=S.recs.length?S.recs[S.recs.length-1]:null;
  const tilt=B.servo_dir*(B.applied-B.level)/B.us_per_mrad,f=(v,d,u)=>v===null||v===undefined?'-':v.toFixed(d)+(u||'');
  const rows=[['Beam', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">HELD at '+B.hold_mrad.toFixed(1)+' mrad</b> (guardian paused)':'guardian '+S.mode.toLowerCase()],
@@ -201,6 +205,6 @@ function drawBench(){if(!S||!S.bench)return;const B=S.bench,f=v=>v===null?'-':v;
  [['mean settling time',B.settle,' s'],['worst overshoot',B.over,' mm'],['RMS tracking error',B.rms,' mm']].map(r=>'<tr><td>'+r[0]+'</td><td style="text-align:right"'+better(r[1][0],r[1][1])+'>'+f(r[1][0])+r[2]+'</td><td style="text-align:right"'+better(r[1][1],r[1][0])+'>'+f(r[1][1])+r[2]+'</td></tr>').join('')+
  '<tr><td>guardian interventions</td><td style="text-align:right">'+B.iv[0]+'</td><td style="text-align:right">'+B.iv[1]+'</td></tr><tr><td>steps not settled</td><td style="text-align:right">'+B.unsettled[0]+'</td><td style="text-align:right">'+B.unsettled[1]+'</td></tr></table>'}
 function drawEvents(){if(!S)return;$('ev').innerHTML=S.events.slice().reverse().map(e=>'<div>'+e[0].toFixed(1).padStart(7)+' s ago &nbsp; <span style="color:var(--ink)">'+e[1]+'</span></div>').join('')}
-async function tick(){try{const r=await fetch('/api/state');S=await r.json();kv();bdPanel();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent=(e instanceof TypeError&&/fetch|network|Failed/i.test(e.message))?'guardian not reachable':'dashboard error: '+e.message;console.error(e)}setTimeout(tick,100)}
+async function tick(){try{const r=await fetch('/api/state');S=await r.json();kv();bdPanel();armText();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent=(e instanceof TypeError&&/fetch|network|Failed/i.test(e.message))?'guardian not reachable':'dashboard error: '+e.message;console.error(e)}setTimeout(tick,100)}
 tick();
 </script></body></html>
