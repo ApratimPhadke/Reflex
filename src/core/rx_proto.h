@@ -81,7 +81,7 @@ typedef enum {
     /* pilot over UDP (guest supervision, src/core/rx_guest.h) */
     RX_E_GUEST_DOWN, RX_E_GUEST_UP, RX_E_GUEST_RESTART, RX_E_GUEST_QUARANTINE, RX_E_GUEST_CMD_FAILED, RX_E_GUEST_INSTANCE,
     /* beam-direct rig (src/guardian/rx_io_beam.c) */
-    RX_E_ESTOP, RX_E_SERVO_TRIP,
+    RX_E_ESTOP, RX_E_SERVO_TRIP, RX_E_KICK,
     RX_E_COUNT
 } rx_evcode_e;
 static const char *const rx_event_name[] = { "?", "guardian started", "guardian took over", "AI back in control",
@@ -95,7 +95,8 @@ static const char *const rx_event_name[] = { "?", "guardian started", "guardian 
     "guest restart command failed (arg = exit status, -1 = ran over 60 s, -2 = could not start)",
     "new pilot instance (arg = its id)",
     "E-STOP: button pressed, beam level, AI stopped (rxctl release)",
-    "SERVO TRIP: current above 1.5 A for 3 ticks, servo limp until restart (arg = mA)" };
+    "SERVO TRIP: current above 1.5 A for 3 ticks, servo limp until restart (arg = mA)",
+    "test disturbance over: the beam was held tilted (RX_BEAM_KICK), the guardian has it again" };
 _Static_assert(sizeof rx_event_name / sizeof rx_event_name[0] == RX_E_COUNT, "event names out of step");
 typedef struct { uint64_t t_ns; uint32_t seq; uint16_t code; int32_t arg; } rx_event_t;
 
@@ -192,6 +193,13 @@ typedef struct {
     _Atomic uint32_t guest_restarts;        /* restart commands issued */
     _Atomic uint32_t guest_age_ms;          /* time since the last valid proposal (updated ~10x/s) */
     _Atomic uint32_t guest_cmd_running;     /* the restart command is running */
+    /* beam-direct rig (src/guardian/rx_io_beam.c): I/O diagnostics for the dashboard (display only, written by
+     * the control thread from the helper's mailbox), and the operator's tilt hold ("tilt <mrad>" / "tilt off"):
+     * while held the beam stays at that tilt (inside the servo limits) and the guardian's command is not applied */
+    float beam_raw_mm, beam_filt_mm, beam_amp_ma, beam_supply_v, beam_tilt_deg, beam_hit_pct, beam_us_per_mrad;
+    _Atomic uint32_t beam_present, beam_applied_us, beam_target_us, beam_estop, beam_trip, beam_level_us;
+    _Atomic int32_t  beam_servo_dir, beam_hold_mrad10;   /* operator tilt hold, 0.1 mrad; + = ball toward +x */
+    _Atomic uint32_t beam_hold;
 } rx_shm_t;
 
 #endif

@@ -18,7 +18,8 @@ SCP_OPTS=(-o HostName="$PI_IP" -o HostKeyAlias=qnxpi.local -o BatchMode=yes)
 pi() { "${SSH[@]}" "cd reflex && $*"; }
 mkdir -p "$(dirname "$OUT")"
 pi "pidin -F '%N' 2>/dev/null | grep -q reflex-guardian" && { echo "a guardian is already running on the Pi"; exit 1; }
-pi "./rxctl wipe >/dev/null 2>&1; rm -f beam.csv; (nohup ./reflex-guardian --backend beam --fresh $* > beam-guardian.log 2>&1 < /dev/null &)"
+KICK_ENV=""; [ -n "${KICK:-}" ] && KICK_ENV="RX_BEAM_KICK=$KICK"           # KICK=mrad:ms (test disturbance)
+pi "./rxctl wipe >/dev/null 2>&1; rm -f beam.csv; ($KICK_ENV nohup ./reflex-guardian --backend beam --fresh $* > beam-guardian.log 2>&1 < /dev/null &)"
 sleep 1.5
 case "$SP" in
     steps:*) IFS=: read -r _ AMP PER <<< "$SP"; pi "./rxctl period $((PER * 1000)) >/dev/null; ./rxctl sp auto >/dev/null" ;;
@@ -32,7 +33,7 @@ for f in beam-guardian.log:guardian.log trial-events.txt:events.txt trial-status
 done
 {
     echo "trial $NAME, $(date -Iseconds), commit $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- src || echo '-dirty')"
-    echo "command: scripts/beam-trial.sh $NAME $SECS $SP $*"
+    echo "command: ${KICK:+KICK=$KICK }scripts/beam-trial.sh $NAME $SECS $SP $*"
     grep beam-direct "$OUT.guardian.log"
     python3 tools/beam_trial.py "$OUT"
 } | tee "$OUT.summary.txt"

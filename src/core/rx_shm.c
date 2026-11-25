@@ -1,6 +1,7 @@
 /* Shared-memory telemetry block + helpers used by every Reflex process.
  * SPDX-License-Identifier: MIT */
 #include <errno.h>
+#include <math.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -151,6 +152,12 @@ int rx_command(rx_shm_t *s, const char *line)
     if (!strcasecmp(a, "train") && k >= 2) { atomic_store(&s->training, !strcasecmp(b, "on")); return 0; }
     if (!strcasecmp(a, "period") && k >= 2) { int ms = atoi(b); if (ms < 500 || ms > 60000) { errno = EINVAL; return -1; } atomic_store(&s->sp_period_ms, (uint32_t)ms); return 0; }
     if (!strcasecmp(a, "release")) { atomic_store(&s->cmd_release_quarantine, 1); return 0; }
+    if (!strcasecmp(a, "tilt") && k >= 2) {                      /* beam-direct: operator tilt hold */
+        if (!strcasecmp(b, "off")) { atomic_store(&s->beam_hold, 0); return 0; }
+        char *e; double mr = strtod(b, &e);
+        if (e == b || *e || !isfinite(mr) || mr < -60 || mr > 60) { errno = EINVAL; return -1; }
+        atomic_store(&s->beam_hold_mrad10, (int32_t)lrint(mr * 10)); atomic_store(&s->beam_hold, 1); return 0;
+    }
     if (!strcasecmp(a, "fallback") && k >= 2) {                  /* fly on the fallback controller alone */
         if (strcasecmp(b, "on") && strcasecmp(b, "off")) { errno = EINVAL; return -1; }
         atomic_store(&s->force_fallback, !strcasecmp(b, "on")); return 0;

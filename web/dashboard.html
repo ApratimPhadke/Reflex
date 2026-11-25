@@ -38,7 +38,18 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
 <div id="banner"></div>
 <div id="bigstats"><div><b id="bs0">-</b><span id="bl0">balls lost</span></div><div><b id="bs1">-</b><span>guardian take-overs</span></div><div><b id="bs2">-</b><span>worst wake-up latency</span></div><div><b id="bs3">-</b><span>control rate</span></div></div>
 <div>
-  <div class="card"><h2>Plant</h2><canvas id="beam" height="210"></canvas></div>
+  <div class="card" id="bdcard" style="display:none;margin-bottom:14px"><h2>Beam-direct rig: place the ball</h2>
+    <div style="font-size:13px;color:var(--dim);margin-bottom:8px">1. Tilt the beam with the buttons (the guardian is paused while the beam is held). 2. <b style="color:var(--ink)">Click on the beam</b> where the ball should go. 3. Press <b style="color:var(--ink)">Enter</b>: the hold is released and the guardian balances the ball there. <b style="color:var(--ink)">Space</b> = level hold.</div>
+    <div class="btns" style="grid-template-columns:repeat(5,1fr)">
+      <button onclick="tiltBy(-5)"><b>&larr; sensor</b><small>tilt 5 mrad</small></button>
+      <button onclick="holdAt(0)"><b>Level</b><small>hold level</small></button>
+      <button onclick="tiltBy(5)"><b>servo &rarr;</b><small>tilt 5 mrad</small></button>
+      <button onclick="go()" style="border-color:var(--safe)"><b>Balance (Enter)</b><small id="pend">click the beam first</small></button>
+      <button class="danger" onclick="cmd('release')"><b>Release e-stop</b><small>rxctl release</small></button>
+    </div>
+    <div class="kv" id="bdkv" style="margin-top:10px"></div>
+  </div>
+  <div class="card"><h2>Plant</h2><canvas id="beam" height="210" style="cursor:crosshair"></canvas></div>
   <div class="card" style="margin-top:14px"><h2>Ball position vs setpoint (last 10 s)</h2><canvas id="pos" height="170"></canvas>
     <div class="legend"><span><i style="background:#e6edf3"></i>ball</span><span><i style="background:#8b949e"></i>setpoint</span><span><i style="background:#f8514944"></i>keep-out strip</span><span><i style="background:#3fb95055"></i>guardian in control</span></div></div>
   <div class="card cmdcard" style="margin-top:14px"><h2>Command: what the AI asked for vs what reached the actuator</h2><canvas id="cmd" height="150"></canvas>
@@ -74,6 +85,24 @@ body.present #bigstats{display:grid}body.present .chip{font-size:16px}
 <script>
 const $=id=>document.getElementById(id);let S=null;
 function cmd(c){fetch('/api/cmd?'+encodeURIComponent(c)).catch(()=>{})}
+let pendX=null;   /* beam-direct: target picked on the beam [m], not yet sent */
+function isBD(){return S&&S.beam&&S.beam.present}
+function curTilt(){if(!isBD())return 0;const B=S.beam;return B.hold?B.hold_mrad:(B.level-B.applied)*(-B.servo_dir)/B.us_per_mrad*(-1)}
+function holdAt(m){m=Math.max(-50,Math.min(50,m));cmd('tilt '+m.toFixed(1))}
+function tiltBy(d){if(!isBD())return;const B=S.beam;const now=B.hold?B.hold_mrad:B.servo_dir*(B.applied-B.level)/B.us_per_mrad;holdAt(now+d)}
+function go(){if(pendX===null){$('pend').textContent='click the beam first';return}const mm=Math.round(pendX*1000);cmd('sp '+mm);cmd('tilt off');$('pend').textContent='balancing at '+mm+' mm'}
+document.addEventListener('keydown',e=>{if(!isBD())return;if(e.key==='Enter'){e.preventDefault();go()}else if(e.key===' '){e.preventDefault();holdAt(0)}else if(e.key==='ArrowRight')tiltBy(2);else if(e.key==='ArrowLeft')tiltBy(-2)});
+document.addEventListener('DOMContentLoaded',()=>{});
+setTimeout(()=>{$('beam').addEventListener('click',ev=>{if(!S||!isBD())return;const c=$('beam'),rc=c.getBoundingClientRect(),w=c.clientWidth,L=S.half_len,pxm=(w*0.42)/L;
+ let x=(ev.clientX-rc.left-w/2)/pxm;x=Math.max(-S.sp_limit,Math.min(S.sp_limit,x));pendX=x;$('pend').textContent='go to '+Math.round(x*1000)+' mm (+'+(88+Math.round(x*1000))+' from sensor)';drawBeam()})},0);
+function bdPanel(){const card=$('bdcard');if(!isBD()){card.style.display='none';return}card.style.display='block';const B=S.beam,r=S.recs.length?S.recs[S.recs.length-1]:null;
+ const tilt=B.servo_dir*(B.applied-B.level)/B.us_per_mrad,f=(v,d,u)=>v===null||v===undefined?'-':v.toFixed(d)+(u||'');
+ const rows=[['Beam', B.estop?'<b style="color:var(--bad)">E-STOP (beam level)</b>':B.trip?'<b style="color:var(--bad)">SERVO TRIP</b>':B.hold?'<b style="color:var(--warn)">HELD at '+B.hold_mrad.toFixed(1)+' mrad</b> (guardian paused)':'guardian '+S.mode.toLowerCase()],
+  ['Ball (filtered) / raw echo',f(B.filt,1,' mm')+' / '+f(B.raw,1,' mm')],['Sensor sees the ball',f(B.hit,0,' % of pings')],
+  ['Ball x / velocity',r?(r[1]===null?'lost':(r[1]*1000).toFixed(1)+' mm'):'-'],['Setpoint',r?(r[2]*1000).toFixed(0)+' mm':'-'],
+  ['Beam tilt (servo)',tilt.toFixed(1)+' mrad = '+(tilt*0.0573).toFixed(2)+' deg (+ = ball to the servo end)'],['Guardian command',r?(r[4]*1000).toFixed(1)+' mrad':'-'],
+  ['Servo pulse target / applied',B.target+' / '+B.applied+' us'],['Servo current',f(B.amp,0,' mA')],['Servo supply',f(B.volt,2,' V')],['MPU tilt (raw)',f(B.tilt,2,' deg')]];
+ $('bdkv').innerHTML=rows.map(r=>'<span>'+r[0]+'</span><span>'+r[1]+'</span>').join('')}
 function toggleGuard(){cmd('guard '+(S&&S.guard?'off':'on'))}
 function fit(c){const r=devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute('height');if(c.width!==w*r||c.height!==h*r){c.width=w*r;c.height=h*r}const g=c.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return[g,w,h]}
 const MC={AI:'#58a6ff',SAFE:'#3fb950',BYPASS:'#f85149'};
@@ -87,13 +116,15 @@ function drawJoint(){const[g,w,h]=fit($('beam'));const r=S.recs[S.recs.length-1]
  g.fillStyle='#8b949e';g.font='12px system-ui';g.fillText('robot joint (simulated)   angle '+(r[1]*57.3).toFixed(1)+' deg   setpoint '+(r[2]*57.3).toFixed(0)+' deg   torque '+r[4].toFixed(2)+' N m',12,h-8);
  if(r[8]){g.fillStyle='#f85149';g.font='bold 20px system-ui';g.fillText('LIMIT HIT',w/2-50,30)}}
 function drawBeam(){if(S&&S.plant==='joint'&&S.recs.length)return drawJoint();const[g,w,h]=fit($('beam'));if(!S||!S.recs.length)return;const r=S.recs[S.recs.length-1],L=S.half_len;
- const x=(r[9]!==null?r[9]:r[1]),u=r[4],cx=w/2,cy=h*0.62,pxm=(w*0.42)/L,a=u*1.5;
+ const bd=isBD(),u=bd?S.beam.servo_dir*(S.beam.applied-S.beam.level)/S.beam.us_per_mrad/1000:r[4],x=(r[9]!==null?r[9]:r[1]),cx=w/2,cy=h*0.62,pxm=(w*0.42)/L,a=u*(bd?8:1.5);
  g.save();g.translate(cx,cy);g.fillStyle='#2a313c';g.beginPath();g.moveTo(-16,60);g.lineTo(16,60);g.lineTo(0,6);g.fill();
  g.rotate(a);g.fillStyle='#f8514933';const ko=0.01*pxm;g.fillRect(-L*pxm,-5,ko,10);g.fillRect(L*pxm-ko,-5,ko,10);
  g.fillStyle='#8b949e';g.fillRect(-L*pxm,-4,2*L*pxm,8);
  g.fillStyle='#d29922';g.fillRect(r[2]*pxm-1.5,-16,3,12);
+ if(bd&&pendX!==null){g.strokeStyle='#58a6ff';g.setLineDash([4,3]);g.lineWidth=2;g.beginPath();g.moveTo(pendX*pxm,-34);g.lineTo(pendX*pxm,4);g.stroke();g.setLineDash([])}
  if(!r[8]){g.fillStyle=MC[S.mode]||'#fff';g.beginPath();g.arc(x*pxm,-4-13,13,0,7);g.fill()}
- g.restore();g.fillStyle='#8b949e';g.font='12px system-ui';g.fillText('x = '+(r[1]*1000).toFixed(1)+' mm   setpoint '+(r[2]*1000).toFixed(0)+' mm   beam '+(u*57.3).toFixed(1)+' deg (drawn x1.5)',12,h-8);
+ if(bd){g.fillStyle='#8b949e';g.fillRect(-L*pxm-26,-20,12,20)}   // the HC-SR04 at the hinge end
+ g.restore();g.fillStyle='#8b949e';g.font='12px system-ui';g.fillText('x = '+(r[1]*1000).toFixed(1)+' mm   setpoint '+(r[2]*1000).toFixed(0)+' mm   beam '+(u*57.3).toFixed(2)+' deg (drawn x'+(bd?8:1.5)+')'+(bd?'   sensor on the left, servo on the right':''),12,h-8);
  if(r[8]){g.fillStyle='#f85149';g.font='bold 20px system-ui';g.fillText('BALL LOST',w/2-55,44)}}
 function series(id,lines,lo,hi,shade){const[g,w,h]=fit($(id));if(!S||S.recs.length<2)return;const R=S.recs,n=R.length,X=i=>i*(w-1)/(n-1),Y=v=>h-(v-lo)/(hi-lo)*h;
  if(shade){g.fillStyle='#3fb95022';for(let i=0;i<n;i++)if(R[i][5]===1)g.fillRect(X(i),0,(w/n)+1,h);g.fillStyle='#f8514922';for(let i=0;i<n;i++)if(R[i][5]===2)g.fillRect(X(i),0,(w/n)+1,h);
@@ -132,6 +163,6 @@ function drawBench(){if(!S||!S.bench)return;const B=S.bench,f=v=>v===null?'-':v;
  [['mean settling time',B.settle,' s'],['worst overshoot',B.over,' mm'],['RMS tracking error',B.rms,' mm']].map(r=>'<tr><td>'+r[0]+'</td><td style="text-align:right"'+better(r[1][0],r[1][1])+'>'+f(r[1][0])+r[2]+'</td><td style="text-align:right"'+better(r[1][1],r[1][0])+'>'+f(r[1][1])+r[2]+'</td></tr>').join('')+
  '<tr><td>guardian interventions</td><td style="text-align:right">'+B.iv[0]+'</td><td style="text-align:right">'+B.iv[1]+'</td></tr><tr><td>steps not settled</td><td style="text-align:right">'+B.unsettled[0]+'</td><td style="text-align:right">'+B.unsettled[1]+'</td></tr></table>'}
 function drawEvents(){if(!S)return;$('ev').innerHTML=S.events.slice().reverse().map(e=>'<div>'+e[0].toFixed(1).padStart(7)+' s ago &nbsp; <span style="color:var(--ink)">'+e[1]+'</span></div>').join('')}
-async function tick(){try{const r=await fetch('/api/state');S=await r.json();kv();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent='guardian not reachable'}setTimeout(tick,100)}
+async function tick(){try{const r=await fetch('/api/state');S=await r.json();kv();bdPanel();drawBeam();series('pos',[[2,'#8b949e',1],[1,'#e6edf3',1.6]],-S.half_len,S.half_len,true);series('cmd',[[3,'#58a6ff',1.2],[4,'#3fb950',1.6]],-S.theta_max*1.3,S.theta_max*1.3,false);drawHist();drawLearn();drawBench();drawEvents()}catch(e){$('badge').textContent='guardian not reachable'}setTimeout(tick,100)}
 tick();
 </script></body></html>

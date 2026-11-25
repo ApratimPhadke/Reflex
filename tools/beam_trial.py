@@ -32,6 +32,13 @@ print(f"command: {min(u):+.1f}..{max(u):+.1f} mrad; at the limits (|u| >= 99 % t
 cur = [f(r['current_ma']) for r in beam]; vol = [f(r['supply_v']) for r in beam]; til = [f(r['mpu_tilt_deg']) for r in beam if not math.isnan(f(r['mpu_tilt_deg']))]
 acc = sum(1 for r in beam if r['accepted'] == '1')
 print(f"sonar accepted {100 * acc / max(1, len(beam)):.0f} %; current mean {sum(cur) / len(cur):.0f} mA peak {max(cur):.0f} mA; supply min {min(vol):.2f} V; MPU tilt {min(til):+.1f}..{max(til):+.1f} deg")
+kt = [f(r['t_s']) for r in beam if r.get('kick') == '1']
+if kt:
+    t_end = max(kt); rec_t = [f(r['t_s']) for r in rec]
+    print(f"kick: {len(kt)} ticks, {min(kt):.2f}..{t_end:.2f} s (I/O-helper clock)")
+    # ball after the kick (rec rows are in order; map by fraction of the trial)
+    post = [x for x, l in zip(xs, lostf) if not l and not math.isnan(x)]
+    if post: print(f"ball over the whole trial: farthest {max(post, key=abs):+.1f} mm; last 5 s mean {sum(post[-250:]) / len(post[-250:]):+.1f} mm")
 for k in ('balls lost', 'interventions'):
     for line in st.splitlines():
         if line.startswith(k): print(line)

@@ -15,6 +15,9 @@
  *      5 V: results/2026-11-24-beam-direct/step2-*);
  *   4. MPU tilt (logging only), button (e-stop, latched until rxctl release), status LED;
  *   5. publish, and one row to beam.csv (the trial logs of step 4).
+ * Test disturbance (RX_BEAM_KICK="mrad:ms", step 4 trials only): one second after the ball is first seen, the
+ * helper holds the beam at that tilt for that long whatever the guardian commands, like a hand tilting the beam,
+ * still slew-limited and inside the servo limits; then the guardian has the beam again. Logged (kick column). 
  * The measurement the control thread reads is the one taken right after the previous command: 1 tick old. */
 #include <errno.h>
 #include <math.h>
@@ -44,17 +47,18 @@
 typedef struct {
     _Atomic uint32_t seq;             /* seqlock: odd while the helper writes */
     float x; int valid; uint32_t n;   /* filtered ball position [m] (NaN when none) and a counter of ticks */
-    float raw_mm, amp, volt, tilt_deg; int applied_us;
+    float raw_mm, amp, volt, tilt_deg, filt_mm; int applied_us, target_us;
 } snap_t;
 
 typedef struct {
     const rx_cfg_t *cfg; rx_conf_t conf; rx_shm_t *shm;
     pthread_t th; int th_ok; sem_t tick; _Atomic int stop;
-    _Atomic int cmd_us, estop, estop_clear, trip, ticks;
+    _Atomic int cmd_us, estop, estop_clear, trip, ticks, kick_done, hold_us;   /* hold_us: operator tilt, 0 = none */
     snap_t snap;
     int i2c; rx_sonar_t so; rx_sonar_filt_t filt; FILE *log;
     /* control-thread side */
     uint32_t last_n; int gap; float last_x; int was_valid, lost_counted, told_estop, told_trip;
+    int start_us;
 } beam_t;
 
 static uint64_t mono_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
@@ -66,6 +70,7 @@ static void publish(beam_t *b, const snap_t *v)
     atomic_thread_fence(memory_order_release);
     b->snap.x = v->x; b->snap.valid = v->valid; b->snap.n = v->n; b->snap.raw_mm = v->raw_mm;
     b->snap.amp = v->amp; b->snap.volt = v->volt; b->snap.tilt_deg = v->tilt_deg; b->snap.applied_us = v->applied_us;
+    b->snap.filt_mm = v->filt_mm; b->snap.target_us = v->target_us;
     atomic_thread_fence(memory_order_release);
     atomic_store_explicit(&b->snap.seq, s + 2, memory_order_release);
 }
@@ -78,6 +83,7 @@ static int snapshot(beam_t *b, snap_t *out)
         snap_t v = { 0 };
         v.x = b->snap.x; v.valid = b->snap.valid; v.n = b->snap.n; v.raw_mm = b->snap.raw_mm;
         v.amp = b->snap.amp; v.volt = b->snap.volt; v.tilt_deg = b->snap.tilt_deg; v.applied_us = b->snap.applied_us;
+        v.filt_mm = b->snap.filt_mm; v.target_us = b->snap.target_us;
         atomic_thread_fence(memory_order_acquire);
         if (atomic_load_explicit(&b->snap.seq, memory_order_relaxed) == s1) { *out = v; return 1; }
     }
@@ -88,9 +94,17 @@ static void *helper(void *arg)
 {
     beam_t *b = arg;
     const float dt = b->cfg->dt;
-    int applied = b->conf.level_us, over = 0, low = 0;
+    int applied = b->start_us, over = 0, low = 0;
     uint32_t n = 0; uint64_t t0 = mono_ns();
     float tilt = NAN;
+    int kick_left = -1, kick_us = 0, seen_ticks = 0;                       /* -1: no kick configured */
+    const char *ke = getenv("RX_BEAM_KICK");
+    float kmrad = 0, kms = 0;
+    if (ke && sscanf(ke, "%f:%f", &kmrad, &kms) == 2 && kms > 0 && kms <= 3000 && fabsf(kmrad) <= 50) {
+        kick_left = (int)(kms / 1000.0f / dt + 0.5f);
+        kick_us = b->conf.level_us + (int)lrintf((float)b->conf.servo_dir * kmrad * b->conf.us_per_mrad);
+    }
+    int kicking = 0;
     while (!atomic_load(&b->stop)) {
         struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_nsec += 150000000L; if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
@@ -99,7 +113,12 @@ static void *helper(void *arg)
         int target = ticked ? atomic_load(&b->cmd_us) : b->conf.level_us;    /* watchdog: level */
         if (atomic_exchange(&b->estop_clear, 0)) atomic_store(&b->estop, 0);
         int estop = atomic_load(&b->estop);
+        int hold = atomic_load(&b->hold_us);
+        if (hold) target = hold;                                               /* operator tilt hold */
         if (estop) target = b->conf.level_us;
+        kicking = 0;
+        if (kick_left > 0 && seen_ticks >= (int)(1.0f / dt) && !estop) { target = kick_us; kick_left--; kicking = 1;
+            if (kick_left == 0) atomic_store(&b->kick_done, 1); }
         int d = target - applied;
         applied += d > SLEW_US ? SLEW_US : (d < -SLEW_US ? -SLEW_US : d);
         if (applied < b->conf.servo_min_us) applied = b->conf.servo_min_us;
@@ -109,6 +128,7 @@ static void *helper(void *arg)
 
         float raw = rx_sonar_measure(&b->so, 6, NULL), z = NAN;
         int ok = rx_sonar_step(&b->filt, raw, dt, &z);
+        if (ok || seen_ticks) seen_ticks++;
 
         float a = 0, v = 0;
         if (rx_ina_read(b->i2c, 0x40, &v, NULL, &a, NULL) == 0) {
@@ -125,9 +145,10 @@ static void *helper(void *arg)
         snap_t s = { 0 };
         s.x = ok ? (float)b->conf.sensor_dir * (z - (float)b->conf.center_mm) * 1e-3f : NAN;
         s.valid = ok; s.n = ++n; s.raw_mm = raw; s.amp = a; s.volt = v; s.tilt_deg = tilt; s.applied_us = applied;
+        s.filt_mm = ok ? z : NAN; s.target_us = target;
         publish(b, &s);
-        if (b->log) fprintf(b->log, "%.3f,%.1f,%.1f,%d,%d,%d,%.0f,%.3f,%.2f,%d,%d,%d\n", (mono_ns() - t0) * 1e-9, raw, ok ? z : -1.0f,
-                            ok, target, trip ? 0 : applied, a * 1000, v, tilt, estop, trip ? 1 : 0, ticked);
+        if (b->log) fprintf(b->log, "%.3f,%.1f,%.1f,%d,%d,%d,%.0f,%.3f,%.2f,%d,%d,%d,%d\n", (mono_ns() - t0) * 1e-9, raw, ok ? z : -1.0f,
+                            ok, target, trip ? 0 : applied, a * 1000, v, tilt, estop, trip ? 1 : 0, ticked, kicking);
     }
     rx_gpio_pwm_duty(PIN_SERVO, 0);                                             /* closing: servo limp */
     rx_gpio_write(PIN_LED, 0);
@@ -142,6 +163,12 @@ static float beam_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
     int have = snapshot(b, &s);
     if (have && s.n != b->last_n) {
         b->last_n = s.n; *fresh = 1;
+        /* dashboard diagnostics (display only) */
+        rx_shm_t *m = b->shm;
+        m->beam_raw_mm = s.raw_mm; m->beam_filt_mm = s.filt_mm; m->beam_amp_ma = s.amp * 1000.0f; m->beam_supply_v = s.volt;
+        m->beam_tilt_deg = s.tilt_deg; m->beam_hit_pct = 0.98f * m->beam_hit_pct + (s.valid ? 2.0f : 0.0f);
+        atomic_store(&m->beam_applied_us, (uint32_t)s.applied_us); atomic_store(&m->beam_target_us, (uint32_t)s.target_us);
+        atomic_store(&m->beam_estop, (uint32_t)atomic_load(&b->estop)); atomic_store(&m->beam_trip, (uint32_t)(atomic_load(&b->trip) != 0));
         if (s.valid) { b->gap = 0; b->last_x = s.x; } else b->gap++;
         /* evaluation only (the guardian's decisions never use it): the ball reached the end of the beam it can
          * be seen on, or was last seen near an end and then vanished for 0.5 s */
@@ -154,9 +181,18 @@ static float beam_read(rx_io_t *io, float *x_true, int *lost, int *fresh)
         }
         if (s.valid && fabsf(s.x) < b->cfg->half_len - 0.02f) b->lost_counted = 0;
     }
+    /* operator tilt hold, from the shared memory (rxctl / dashboard "tilt <mrad>" / "tilt off") */
+    if (atomic_load(&b->shm->beam_hold)) {
+        float mr = atomic_load(&b->shm->beam_hold_mrad10) * 0.1f;
+        int p = b->conf.level_us + (int)lrintf((float)b->conf.servo_dir * mr * b->conf.us_per_mrad);
+        if (p < b->conf.servo_min_us) p = b->conf.servo_min_us;
+        if (p > b->conf.servo_max_us) p = b->conf.servo_max_us;
+        atomic_store(&b->hold_us, p);
+    } else atomic_store(&b->hold_us, 0);
     int t = atomic_load(&b->trip);
     if (t && !b->told_trip) { b->told_trip = 1; rx_event_push(b->shm, 0, RX_E_SERVO_TRIP, t); }
     if (atomic_load(&b->estop) && !b->told_estop) { b->told_estop = 1; rx_event_push(b->shm, 0, RX_E_ESTOP, 0); }
+    if (atomic_exchange(&b->kick_done, 0)) rx_event_push(b->shm, 0, RX_E_KICK, 0);
     *lost = b->gap >= RX_SONAR_LOST_TICKS || !have;
     return *lost ? NAN : b->last_x;
 }
@@ -198,6 +234,19 @@ rx_io_t *rx_io_beam_open(const rx_cfg_t *cfg, rx_shm_t *shm, const rx_conf_t *co
     if (!b || !io) { free(b); free(io); return NULL; }
     b->cfg = cfg; b->conf = *conf; b->shm = shm; b->last_x = 0;
     b->gap = RX_SONAR_LOST_TICKS;                                   /* nothing measured yet = lost (beam level) */
+    atomic_store(&shm->beam_present, 1); atomic_store(&shm->beam_level_us, (uint32_t)conf->level_us);
+    atomic_store(&shm->beam_servo_dir, conf->servo_dir); shm->beam_us_per_mrad = conf->us_per_mrad;
+    /* RX_BEAM_HOLD=mrad: start held at that tilt (no jump when the servo is already there), until "tilt off" */
+    const char *he = getenv("RX_BEAM_HOLD"); float hm = 0;
+    int start_us = conf->level_us;
+    if (he && sscanf(he, "%f", &hm) == 1 && fabsf(hm) <= 60) {
+        atomic_store(&shm->beam_hold_mrad10, (int32_t)lrintf(hm * 10)); atomic_store(&shm->beam_hold, 1);
+        start_us = conf->level_us + (int)lrintf((float)conf->servo_dir * hm * conf->us_per_mrad);
+        if (start_us < conf->servo_min_us) start_us = conf->servo_min_us;
+        if (start_us > conf->servo_max_us) start_us = conf->servo_max_us;
+        atomic_store(&b->hold_us, start_us);
+    }
+    b->start_us = start_us;
     atomic_store(&b->cmd_us, conf->level_us);
     if (rx_gpio_open() != 0) { perror("[beam] /dev/gpio/msg"); goto fail; }
     if ((b->i2c = rx_i2c_open(1)) < 0) { perror("[beam] /dev/i2c1"); goto fail; }
@@ -210,10 +259,10 @@ rx_io_t *rx_io_beam_open(const rx_cfg_t *cfg, rx_shm_t *shm, const rx_conf_t *co
     rx_sonar_init(&b->filt, &sc);
     /* start at level: the beam rests near it after the calibration tools; the slew limit takes care of the rest */
     if (rx_gpio_pwm_setup(PIN_SERVO, 50, PWM_RANGE) != 0 ||
-        rx_gpio_pwm_duty(PIN_SERVO, (unsigned)((conf->level_us * PWM_RANGE + 10000) / 20000)) != 0) { perror("[beam] PWM"); goto fail; }
+        rx_gpio_pwm_duty(PIN_SERVO, (unsigned)((b->start_us * PWM_RANGE + 10000) / 20000)) != 0) { perror("[beam] PWM"); goto fail; }
     if (sem_init(&b->tick, 0, 0) != 0) goto fail;
     if (log_path && (b->log = fopen(log_path, "w")))
-        fprintf(b->log, "t_s,raw_mm,filt_mm,accepted,target_us,applied_us,current_ma,supply_v,mpu_tilt_deg,estop,trip,ticked\n");
+        fprintf(b->log, "t_s,raw_mm,filt_mm,accepted,target_us,applied_us,current_ma,supply_v,mpu_tilt_deg,estop,trip,ticked,kick\n");
     if (pthread_create(&b->th, NULL, helper, b) != 0) { perror("[beam] helper"); goto fail; }
     b->th_ok = 1;
     io->read = beam_read; io->write = beam_write; io->close = beam_close; io->name = "beam-direct"; io->priv = b;

@@ -91,6 +91,15 @@ static size_t build_state(void)
         atomic_load(&shm->guest_age_ms), atomic_load(&shm->guest_restarts), atomic_load(&shm->guest_cmd_running),
         atomic_load(&shm->udp_boots), (unsigned long long)atomic_load(&shm->udp_rx_ok),
         (unsigned long long)(atomic_load(&shm->udp_rx_peer) + atomic_load(&shm->udp_rx_malformed) + atomic_load(&shm->udp_rx_replay)));
+    ADD("\"beam\":{\"present\":%u,\"raw\":", atomic_load(&shm->beam_present));   /* beam-direct rig diagnostics */
+    n += jnum(p + n, cap - n, shm->beam_raw_mm, 1);  ADD(",\"filt\":"); n += jnum(p + n, cap - n, shm->beam_filt_mm, 1);
+    ADD(",\"amp\":");  n += jnum(p + n, cap - n, shm->beam_amp_ma, 0);  ADD(",\"volt\":"); n += jnum(p + n, cap - n, shm->beam_supply_v, 2);
+    ADD(",\"tilt\":"); n += jnum(p + n, cap - n, shm->beam_tilt_deg, 2); ADD(",\"hit\":");  n += jnum(p + n, cap - n, shm->beam_hit_pct, 0);
+    ADD(",\"us_per_mrad\":"); n += jnum(p + n, cap - n, shm->beam_us_per_mrad, 3);
+    ADD(",\"applied\":%u,\"target\":%u,\"estop\":%u,\"trip\":%u,\"level\":%u,\"servo_dir\":%d,\"hold\":%u,\"hold_mrad\":%.1f},",
+        atomic_load(&shm->beam_applied_us), atomic_load(&shm->beam_target_us), atomic_load(&shm->beam_estop), atomic_load(&shm->beam_trip),
+        atomic_load(&shm->beam_level_us), atomic_load(&shm->beam_servo_dir), atomic_load(&shm->beam_hold), atomic_load(&shm->beam_hold_mrad10) * 0.1);
+    ADD("\"edge_margin\":%.3f,\"sp_limit\":%.3f,", shm->edge_margin, 0.015);
     ADD("\"interventions\":{");
     for (int i = 1; i < RX_R_COUNT; i++) ADD("%s\"%s\":%llu", i > 1 ? "," : "", rx_reason_name[i], (unsigned long long)atomic_load(&shm->interventions[i]));
     ADD("},\"hist\":[");

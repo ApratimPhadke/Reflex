@@ -768,6 +768,54 @@ static int cmd_track(double secs, float est_tau)
     return 0;
 }
 
+/* Breakaway test: the beam tilts toward the servo only while the button is held (rate us/s), stops when it is
+ * released, holds. The HC-SR04 watches the ball: the first tick it has moved > 3 mm from where it rested marks the
+ * breakaway angle. Never below servo_min_us; starts at from_us (where the servo already is). Ends when the ball
+ * has moved 20 mm, at the limit after a release, or after max_s; then holds level_off.. no: holds where it is
+ * for 3 s and goes limp. Tilt from level = (level_us - pulse) / us_per_mrad (reflex.conf), also the MPU. */
+static int cmd_tilt_test(int bus, const char *conf_path, float from, float rate, double max_s)
+{
+    rx_conf_t cf; char err[200];
+    if (rx_conf_load(&cf, conf_path, err, sizeof err) != 0) { printf("%s\n", err); return 1; }
+    signal(SIGTERM, on_term); signal(SIGINT, on_term); signal(SIGHUP, SIG_IGN);
+    s_fd = rx_i2c_open(bus);
+    if (s_fd < 0 || rx_gpio_open() != 0 || rx_mpu_init(s_fd, A_MPU1, NULL) != 0) { perror("rxhw tilt-test"); return 1; }
+    rx_gpio_input(PIN_BUTTON, 1); rx_gpio_output(PIN_LED, 0);
+    rx_sonar_t so; if (rx_sonar_open(&so, PIN_TRIG, PIN_ECHO) != 0) { perror("sonar"); return 1; }
+    float us = from < cf.servo_min_us ? cf.servo_min_us : from > cf.servo_max_us ? cf.servo_max_us : from;
+    if (rx_gpio_pwm_setup(PIN_SERVO, 50, JOG_RANGE) != 0 || rx_gpio_pwm_duty(PIN_SERVO, (unsigned)(us / JOG_US_PER_COUNT + 0.5f)) != 0) { jlimp(); perror("PWM"); return 1; }
+    float d0 = -1; { float d[9]; int k = 0; for (int i = 0; i < 12 && k < 9; i++) { float mm = rx_sonar_measure(&so, 6, NULL); if (mm > 40 && mm < 200) d[k++] = mm; usleep(20000); }
+                     if (k >= 5) { qsort(d, (size_t)k, sizeof d[0], cmp_f); d0 = d[k / 2]; } }
+    printf("start %.0f us = %.1f mrad (%.2f deg) from level; ball at %.0f mm%s. HOLD the button to tilt more, release to stop.\n",
+           us, (cf.level_us - us) / cf.us_per_mrad, (cf.level_us - us) / cf.us_per_mrad * 0.0573f, d0, d0 < 0 ? " (NOT SEEN)" : "");
+    fflush(stdout);
+    double t0 = now_s(), tp = 0; int pressed = 0, moved = 0, nrel = 0; float last_mm = d0;
+    while (!jog_quit && now_s() - t0 < max_s) {
+        int b = rx_gpio_read(PIN_BUTTON) == 0;
+        if (b && us > cf.servo_min_us) { us -= rate * 0.02f; if (us < cf.servo_min_us) us = (float)cf.servo_min_us; rx_gpio_pwm_duty(PIN_SERVO, (unsigned)(us / JOG_US_PER_COUNT + 0.5f)); }
+        if (pressed && !b) { nrel++; float t = (cf.level_us - us) / cf.us_per_mrad;
+            printf("released: %.0f us = %.1f mrad (%.2f deg) from level\n", us, t, t * 0.0573f); fflush(stdout); }
+        pressed = b;
+        rx_gpio_write(PIN_LED, b);
+        float mm = rx_sonar_measure(&so, 6, NULL);
+        if (mm > 40 && mm < 200) last_mm = mm;
+        if (d0 > 0 && !moved && last_mm > 0 && fabsf(last_mm - d0) > 3.0f) {
+            moved = 1; float t = (cf.level_us - us) / cf.us_per_mrad; float g[3]; float mt = NAN;
+            rx_mpu_t m; if (rx_mpu_read(s_fd, A_MPU1, &m) == 0) { g[0] = m.ax; g[1] = m.ay; g[2] = m.az; mt = beam_tilt(g); }
+            printf("BREAKAWAY: the ball moved %.0f mm (%.0f -> %.0f) at %.0f us = %.1f mrad (%.2f deg) from level; MPU %.2f deg\n",
+                   last_mm - d0, d0, last_mm, us, t, t * 0.0573f, mt); fflush(stdout);
+        }
+        if (moved && fabsf(last_mm - d0) > 20.0f) { printf("ball has rolled %.0f mm: stopping\n", last_mm - d0); break; }
+        if (now_s() - tp >= 0.5) { tp = now_s(); printf("  %6.1f us  %+5.1f mrad  ball %5.0f mm%s\n", us, (cf.level_us - us) / cf.us_per_mrad, last_mm, b ? "  (button held)" : ""); fflush(stdout); }
+        float a; if (rx_ina_read(s_fd, A_INA, NULL, NULL, &a, NULL) == 0 && fabsf(a) > SERVO_TRIP_A) { jlimp(); printf("TRIP %.2f A\n", a); return 1; }
+        usleep(20000);
+    }
+    wait_watch(3000, NULL);
+    jlimp(); rx_gpio_write(PIN_LED, 0);
+    printf("servo limp; %d release(s)%s\n", nrel, moved ? "" : ", the ball never moved more than 3 mm");
+    return 0;
+}
+
 static int cmd_led(int n)
 {
     if (rx_gpio_output(PIN_LED, 0) != 0) { perror("rxhw led"); return 1; }
@@ -824,6 +872,7 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "ballmap")) return cmd_ballmap(argc >= 3 ? atoi(argv[2]) : 30, argc >= 4 ? (float)atof(argv[3]) : 350);
     if (!strcmp(argv[1], "aim")) return cmd_aim(argc >= 3 ? atof(argv[2]) : 120, argc >= 4 ? (float)atof(argv[3]) : 300);
     if (!strcmp(argv[1], "track")) return cmd_track(argc >= 3 ? atof(argv[2]) : 20, argc >= 4 ? (float)atof(argv[3]) : 0.04f);
+    if (!strcmp(argv[1], "tilt-test")) return cmd_tilt_test(bus, "reflex.conf", argc >= 3 ? (float)atof(argv[2]) : 1500, argc >= 4 ? (float)atof(argv[3]) : 100, argc >= 5 ? atof(argv[4]) : 300);
     if (!strcmp(argv[1], "at-level")) return cmd_at_level(bus);
     if (!strcmp(argv[1], "jog")) return cmd_jog(bus, argc >= 3 ? argv[2] : "reflex.conf", argc >= 4 ? (float)atof(argv[3]) : 2300, argc >= 5 ? (float)atof(argv[4]) : 20);
     if (!strcmp(argv[1], "servo-off")) { if (rx_gpio_pwm_duty(PIN_SERVO, 0) != 0) { perror("servo-off"); return 1; } printf("servo limp\n"); return 0; }
